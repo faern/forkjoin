@@ -1,8 +1,15 @@
 [package]
 
 name = "forkjoin"
+description = "A work stealing fork-join parallelism library for Rust"
 version = "1.0.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
+license = "Apache-2.0"
+license-file = "LICENSE"
+homepage = "https://github.com/faern/forkjoin"
+repository = "https://github.com/faern/forkjoin.git"
+readme = "README.md"
+keywords = ["fork-join", "work stealing", "forkjoin", "parallelism", "parallelization"]
 
 [dependencies]
 deque = "0.2.*"
