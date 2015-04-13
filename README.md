@@ -20,29 +20,31 @@ fully computed.
 
 ## Example of summa style
 
-    use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle};
+```rust
+use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle};
 
-    fn fib_30_with_4_threads() {
-        let forkpool = ForkPool::with_threads(4);
-        let result_port = forkpool.schedule(fib_task, 30);
-        let result: usize = result_port.recv().unwrap();
-        assert_eq!(1346269, result);
-    }
+fn fib_30_with_4_threads() {
+    let forkpool = ForkPool::with_threads(4);
+    let result_port = forkpool.schedule(fib_task, 30);
+    let result: usize = result_port.recv().unwrap();
+    assert_eq!(1346269, result);
+}
 
-    fn fib_task(n: usize) -> TaskResult<usize, usize> {
-        if n < 2 {
-            TaskResult::Done(1)
-        } else {
-            TaskResult::Fork(Fork{
-                fun: fib_task,
-                args: vec![n-1,n-2],
-                join: AlgoStyle::Summa(fib_join)})
-        }
+fn fib_task(n: usize) -> TaskResult<usize, usize> {
+    if n < 2 {
+        TaskResult::Done(1)
+    } else {
+        TaskResult::Fork(Fork{
+            fun: fib_task,
+            args: vec![n-1,n-2],
+            join: AlgoStyle::Summa(fib_join)})
     }
+}
 
-    fn fib_join(values: &[usize]) -> usize {
-        values.iter().fold(0, |acc, &v| acc + v)
-    }
+fn fib_join(values: &[usize]) -> usize {
+    values.iter().fold(0, |acc, &v| acc + v)
+}
+```
 
 # Search style
 
@@ -57,64 +59,66 @@ and can abort before all tasks in the tree have been computed.
 
 ## Example of search style
 
-    use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
+```rust
+use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
 
-    type Queen = usize;
-    type Board = Vec<Queen>;
-    type Solutions = Vec<Board>;
+type Queen = usize;
+type Board = Vec<Queen>;
+type Solutions = Vec<Board>;
 
-    fn search_nqueens() {
-        let n: usize = 8;
-        let empty = vec![];
+fn search_nqueens() {
+    let n: usize = 8;
+    let empty = vec![];
 
-        let forkpool = ForkPool::with_threads(4);
-        let par_solutions_port = forkpool.schedule(nqueens_task, (empty, n));
+    let forkpool = ForkPool::with_threads(4);
+    let par_solutions_port = forkpool.schedule(nqueens_task, (empty, n));
 
-        let mut solutions: Vec<Board> = vec![];
-        loop {
-            match par_solutions_port.recv() {
-                Err(..) => break, // Channel is closed to indicate termination
-                Ok(board) => solutions.push(board),
-            };
-        }
-        let num_solutions = solutions.len();
-        println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
+    let mut solutions: Vec<Board> = vec![];
+    loop {
+        match par_solutions_port.recv() {
+            Err(..) => break, // Channel is closed to indicate termination
+            Ok(board) => solutions.push(board),
+        };
     }
+    let num_solutions = solutions.len();
+    println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
+}
 
-    fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
-        if q.len() == n {
-            TaskResult::Done(q)
-        } else {
-            let mut fork_args: Vec<(Board, usize)> = vec![];
-            for i in 0..n {
-                let mut q2 = q.clone();
-                q2.push(i);
+fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
+    if q.len() == n {
+        TaskResult::Done(q)
+    } else {
+        let mut fork_args: Vec<(Board, usize)> = vec![];
+        for i in 0..n {
+            let mut q2 = q.clone();
+            q2.push(i);
 
-                if ok(&q2[..]) {
-                    fork_args.push((q2, n));
-                }
-            }
-            TaskResult::Fork(Fork{
-                fun: nqueens_task,
-                args: fork_args,
-                join: AlgoStyle::Search
-            })
-        }
-    }
-
-    fn ok(q: &[usize]) -> bool {
-        for (x1, &y1) in q.iter().enumerate() {
-            for (x2, &y2) in q.iter().enumerate() {
-                if x2 > x1 {
-                    let xd = x2-x1;
-                    if y1 == y2 || y1 == y2 + xd || (y2 >= xd && y1 == y2 - xd) {
-                        return false;
-                    }
-                }
+            if ok(&q2[..]) {
+                fork_args.push((q2, n));
             }
         }
-        true
+        TaskResult::Fork(Fork{
+            fun: nqueens_task,
+            args: fork_args,
+            join: AlgoStyle::Search
+        })
     }
+}
+
+fn ok(q: &[usize]) -> bool {
+    for (x1, &y1) in q.iter().enumerate() {
+        for (x2, &y2) in q.iter().enumerate() {
+            if x2 > x1 {
+                let xd = x2-x1;
+                if y1 == y2 || y1 == y2 + xd || (y2 >= xd && y1 == y2 - xd) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+```
 
 # In-place mutation style
 
