@@ -9,7 +9,7 @@ license-file = "LICENSE"
 homepage = "https://github.com/faern/forkjoin"
 repository = "https://github.com/faern/forkjoin.git"
 readme = "README.md"
-keywords = ["fork-join", "work stealing", "forkjoin", "parallelism", "parallelization"]
+keywords = ["fork-join", "forkjoin", "work", "stealing", "work-stealing", "parallelism", "parallelization"]
 
 [dependencies]
 deque = "0.2.*"
