@@ -1,6 +1,8 @@
 # ForkJoin
 A work stealing fork-join parallelism library.
 
+[![Build Status](https://api.travis-ci.org/faern/forkjoin.svg?branch=master)](https://travis-ci.org/faern/forkjoin)
+
 Inspired by the blog post [Data Parallelism in Rust](http://smallcultfollowing.com/babysteps/blog/2013/06/11/data-parallelism-in-rust/)
 and implemented as part of a master's thesis.
 
