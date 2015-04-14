@@ -298,7 +298,6 @@ impl<Arg: 'static + Send, Ret: 'static + Send + Sync> ForkPool<Arg,Ret> {
     /// Not very high priority.
     pub fn new() -> ForkPool<Arg,Ret> {
         let nthreads = num_cpus::get();
-        println!("nthreads: {}", nthreads);
         ForkPool::with_threads(nthreads)
     }
 
