@@ -6,6 +6,8 @@ A work stealing fork-join parallelism library.
 Inspired by the blog post [Data Parallelism in Rust](http://smallcultfollowing.com/babysteps/blog/2013/06/11/data-parallelism-in-rust/)
 and implemented as part of a master's thesis.
 
+Library documentation hosted [here](https://faern.github.io/rust-docs/forkjoin/forkjoin/)
+
 This library has been developed to accommodate the needs of three types of
 algorithms that all fit very well for fork-join parallelism.
 
