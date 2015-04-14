@@ -1,3 +1,3 @@
 language: rust
-after_success: curl https://raw.githubusercontent.com/faern/rust-docs/master/travis-doc-upload.sh | sh
+after_success: curl https://raw.githubusercontent.com/faern/forkjoin/master/scripts/travis-doc-upload.sh | sh
 
