@@ -4,10 +4,11 @@ name = "forkjoin"
 description = "A work stealing fork-join parallelism library for Rust"
 version = "1.0.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
+
 license = "Apache-2.0"
-license-file = "LICENSE"
 homepage = "https://github.com/faern/forkjoin"
 repository = "https://github.com/faern/forkjoin.git"
+documentation = "https://faern.github.io/rust-docs/forkjoin/forkjoin/"
 readme = "README.md"
 keywords = ["fork-join", "forkjoin", "work", "stealing", "parallelization"]
 
