@@ -34,10 +34,14 @@ fn mut_inc_task(d: Vec<usize>) -> TaskResult<Vec<usize>, ()> {
             mem::forget(data);
             let v1: Vec<usize> = Vec::from_raw_parts(p, l1, l1);
             let v2: Vec<usize> = Vec::from_raw_parts(p.offset(l1 as isize), l2, l2);
-            TaskResult::Fork(Fork{fun: mut_inc_task, args: vec![v1,v2], join: AlgoStyle::Summa(mut_inc_join)})
+            TaskResult::Fork(Fork {
+                fun: mut_inc_task,
+                args: vec![v1,v2],
+                join: AlgoStyle::Summa(mut_inc_join, ())
+            })
         }
     }
 }
 
 #[cfg(test)]
-fn mut_inc_join(_: &[()]) -> () {}
+fn mut_inc_join(_: &(), _: &[()]) -> () {}

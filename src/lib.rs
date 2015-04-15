@@ -48,11 +48,11 @@
 //!             TaskResult::Fork(Fork{
 //!                 fun: fib_task,
 //!                 args: vec![n-1,n-2],
-//!                 join: AlgoStyle::Summa(fib_join)})
+//!                 join: AlgoStyle::Summa(fib_join, 0)})
 //!         }
 //!     }
 //!
-//!     fn fib_join(values: &[usize]) -> usize {
+//!     fn fib_join(_: &usize, values: &[usize]) -> usize {
 //!         values.iter().fold(0, |acc, &v| acc + v)
 //!     }
 //!
@@ -175,7 +175,7 @@ pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg) -> TaskResult<Arg, Ret>;
 
 /// Type definition of functions joining together forked results.
 /// Only used in `AlgoStyle::Summa` algorithms.
-pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
+pub type TaskJoin<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
 pub struct Task<Arg: Send, Ret: Send + Sync> {
     pub fun: TaskFun<Arg, Ret>,
@@ -220,7 +220,7 @@ pub enum AlgoStyle<Ret> {
     /// and summing binary trees.
     ///
     /// Takes a function pointer that joins together results as argument.
-    Summa(TaskJoin<Ret>),
+    Summa(TaskJoin<Ret>, Ret),
 
     /// A `Search` style algoritm return their results to the listener directly upon a
     /// `TaskResult::Done`.
@@ -236,6 +236,8 @@ pub struct JoinBarrier<Ret: Send + Sync> {
     pub ret_counter: AtomicUsize,
     /// Function pointer to execute when all arguments have arrived.
     pub joinfun: TaskJoin<Ret>,
+    /// Argument passed directly from the forking task to its join
+    pub joinarg: Ret,
     /// Vector holding the results of all subtasks. Initialized unsafely so can't be used
     /// for anything until all the values have been put in place.
     pub joinfunarg: Vec<Ret>,
