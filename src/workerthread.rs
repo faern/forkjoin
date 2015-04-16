@@ -210,11 +210,11 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     }
 }
 
-impl<Arg: Send, Ret: Send + Sync> Drop for WorkerThread<Arg, Ret> {
-    fn drop(&mut self) {
-        println!("Dropping WorkerThread");
-    }
-}
+// impl<Arg: Send, Ret: Send + Sync> Drop for WorkerThread<Arg, Ret> {
+//     fn drop(&mut self) {
+//         println!("Dropping WorkerThread");
+//     }
+// }
 
 fn create_result_vec<Ret>(n: usize) -> (Vec<Ret>, Vec<Unique<Ret>>) {
     let mut rets: Vec<Ret> = Vec::with_capacity(n);

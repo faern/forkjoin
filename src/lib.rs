@@ -319,9 +319,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
     }
 }
 
-impl<'a, Arg: Send, Ret: Send + Sync> Drop for ForkPool<'a, Arg, Ret> {
-    fn drop(&mut self) {
-        //self.supervisor.shutdown();
-        println!("Dropping ForkPool");
-    }
-}
+// impl<'a, Arg: Send, Ret: Send + Sync> Drop for ForkPool<'a, Arg, Ret> {
+//     fn drop(&mut self) {
+//         println!("Dropping ForkPool");
+//     }
+// }

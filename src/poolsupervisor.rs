@@ -54,7 +54,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisor<'a, Arg, Ret> {
 
 impl<'a, Arg: Send, Ret: Send + Sync> Drop for PoolSupervisor<'a, Arg, Ret> {
     fn drop(&mut self) {
-        println!("Dropping PoolSupervisor");
+        //println!("Dropping PoolSupervisor");
         self.channel.send(SupervisorMsg::Shutdown).unwrap();
     }
 }
@@ -148,8 +148,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisorThread<'a, Arg, Re
     }
 }
 
-impl<'a, Arg: Send, Ret: Send + Sync> Drop for PoolSupervisorThread<'a, Arg, Ret> {
-    fn drop(&mut self) {
-        println!("Dropping PoolSupervisorThread");
-    }
-}
+// impl<'a, Arg: Send, Ret: Send + Sync> Drop for PoolSupervisorThread<'a, Arg, Ret> {
+//     fn drop(&mut self) {
+//         println!("Dropping PoolSupervisorThread");
+//     }
+// }
