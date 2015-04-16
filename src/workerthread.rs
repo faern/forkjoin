@@ -22,11 +22,12 @@ use std::thread;
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
-use ::{Task,JoinBarrier,TaskResult,Fork,ResultReceiver,WorkerMsg,SupervisorMsg,AlgoStyle};
+use ::{Task,JoinBarrier,TaskResult,Fork,ResultReceiver,WorkerMsg,AlgoStyle};
+use ::poolsupervisor::SupervisorMsg;
 
 static STEAL_TRIES: usize = 5;
 
-pub struct WorkerThread<Arg: 'static + Send, Ret: 'static + Send + Sync> {
+pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     id: usize,
     started: bool,
     supervisor_port: Receiver<WorkerMsg<Arg,Ret>>,
@@ -37,7 +38,7 @@ pub struct WorkerThread<Arg: 'static + Send, Ret: 'static + Send + Sync> {
     rng: XorShiftRng,
 }
 
-impl<Arg: 'static + Send, Ret: 'static + Send + Sync> WorkerThread<Arg,Ret> {
+impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn new(id: usize,
             port: Receiver<WorkerMsg<Arg,Ret>>,
             channel: Sender<SupervisorMsg<Arg,Ret>>) -> WorkerThread<Arg,Ret> {
@@ -66,14 +67,14 @@ impl<Arg: 'static + Send, Ret: 'static + Send + Sync> WorkerThread<Arg,Ret> {
         self.other_stealers.push(stealer);
     }
 
-    pub fn spawn(mut self) {
+    pub fn spawn(mut self) -> thread::JoinGuard<'a, ()> {
         assert!(!self.started);
         self.started = true;
         let builder = thread::Builder::new().name(format!("fork-join worker {}", self.id+1));
-        let handle = builder.spawn(move|| {
+        let joinguard = builder.scoped(move|| {
             self.main_loop();
         });
-        drop(handle.unwrap()); // Explicitly detach thread to not get compiler warning
+        joinguard.unwrap()
     }
 
     fn main_loop(mut self) {
@@ -206,6 +207,12 @@ impl<Arg: 'static + Send, Ret: 'static + Send + Sync> WorkerThread<Arg,Ret> {
                 }
             }
         }
+    }
+}
+
+impl<Arg: Send, Ret: Send + Sync> Drop for WorkerThread<Arg, Ret> {
+    fn drop(&mut self) {
+        println!("Dropping WorkerThread");
     }
 }
 
