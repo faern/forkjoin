@@ -154,9 +154,9 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         let len: usize = fork.args.len();
         let mut resultreceivers = vec![];
         match fork.join {
-            AlgoStyle::Summa(joinfun) => {
+            AlgoStyle::Summa(joinfun, joinarg) => {
                 if len == 0 {
-                    let joinres = (joinfun)(&Vec::new()[..]);
+                    let joinres = (joinfun)(&joinarg, &Vec::new()[..]);
                     self.handle_join(&parent_join, joinres);
                 } else {
                     let (rets, rets_ptr) = create_result_vec::<Ret>(len);
@@ -164,6 +164,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                     let join_arc = Arc::new(JoinBarrier {
                         ret_counter: AtomicUsize::new(len),
                         joinfun: joinfun,
+                        joinarg: joinarg,
                         joinfunarg: rets,
                         parent: parent_join,
                     });
@@ -196,7 +197,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             ResultReceiver::Join(ref ptr, ref join) => {
                 unsafe { write(**ptr, value); } // Writes without dropping since only null in place
                 if join.ret_counter.fetch_sub(1, Ordering::SeqCst) == 1 {
-                    let joinres = (join.joinfun)(&join.joinfunarg);
+                    let joinres = (join.joinfun)(&join.joinarg, &join.joinfunarg);
                     self.handle_join(&join.parent, joinres);
                 }
             }

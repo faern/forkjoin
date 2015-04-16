@@ -37,4 +37,4 @@ fn mut_inc_task(d: &mut [usize]) -> TaskResult<&mut [usize], ()> {
 }
 
 #[cfg(test)]
-fn mut_inc_join(_: &[()]) -> () {}
+fn mut_inc_join(_: &(), _: &[()]) -> () {}

@@ -69,12 +69,16 @@ fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Solutions> 
                 fork_args.push((q2, n));
             }
         }
-        TaskResult::Fork(Fork{fun: nqueens_task, args: fork_args, join: AlgoStyle::Summa(nqueens_join)})
+        TaskResult::Fork(Fork {
+            fun: nqueens_task,
+            args: fork_args,
+            join: AlgoStyle::Summa(nqueens_join, vec![])
+        })
     }
 }
 
 #[cfg(test)]
-fn nqueens_join(values: &[Solutions]) -> Solutions {
+fn nqueens_join(_: &Solutions, values: &[Solutions]) -> Solutions {
     let mut all_solutions: Solutions = vec![];
     for solutions in values {
         all_solutions.push_all(&solutions[..]);

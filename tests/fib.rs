@@ -31,12 +31,16 @@ fn fib_task(n: usize) -> TaskResult<usize, usize> {
     if n < 10 {
         TaskResult::Done(fib(n))
     } else {
-        TaskResult::Fork(Fork{fun: fib_task, args: vec![n-1,n-2], join: AlgoStyle::Summa(fib_join)})
+        TaskResult::Fork(Fork {
+            fun: fib_task,
+            args: vec![n-1,n-2],
+            join: AlgoStyle::Summa(fib_join, 0)
+        })
     }
 }
 
 #[cfg(test)]
-fn fib_join(values: &[usize]) -> usize {
+fn fib_join(_: &usize, values: &[usize]) -> usize {
     values.iter().fold(0, |acc, &v| acc + v)
 }
 
