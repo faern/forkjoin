@@ -153,6 +153,7 @@
 
 
 #![feature(unique)]
+#![feature(scoped)]
 
 
 extern crate deque;
@@ -270,27 +271,13 @@ pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
     Steal,
 }
 
-/// Messages from `ForkPool` and `WorkerThread` to the `PoolSupervisor`.
-pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
-    /// The WorkerThreads use this to tell the `PoolSupervisor` they don't have anything
-    /// to do and that stealing did not give any new `Task`s.
-    /// The argument `usize` is the id of the `WorkerThread`.
-    OutOfWork(usize),
-    /// The `ForkPool` uses this to schedule new tasks on the `PoolSupervisor`.
-    /// The `PoolSupervisor` will later schedule these to a `WorkerThread` when it see fit.
-    Schedule(Task<Arg,Ret>),
-    /// Message from the `ForkPool` to the `PoolSupervisor` to tell it to shutdown.
-    Shutdown,
-}
-
-
 /// Main struct of the ForkJoin library.
 /// Represents a pool of threads implementing a work stealing algorithm.
-pub struct ForkPool<Arg: 'static + Send, Ret: 'static + Send + Sync> {
-    supervisor: Sender<SupervisorMsg<Arg,Ret>>,
+pub struct ForkPool<'a, Arg: Send, Ret: Send + Sync> {
+    supervisor: PoolSupervisor<'a, Arg, Ret>,
 }
 
-impl<Arg: 'static + Send, Ret: 'static + Send + Sync> ForkPool<Arg,Ret> {
+impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
     /// Create a new `ForkPool` using num_cpus to determine pool size
     ///
     /// On a X-core cpu with hyper-threading it creates 2X threads
@@ -298,13 +285,13 @@ impl<Arg: 'static + Send, Ret: 'static + Send + Sync> ForkPool<Arg,Ret> {
     /// This is not optimal. It makes the computer very slow and don't yield
     /// very much speedup compared to X threads. Not sure how to best fix this.
     /// Not very high priority.
-    pub fn new() -> ForkPool<Arg,Ret> {
+    pub fn new() -> ForkPool<'a, Arg, Ret> {
         let nthreads = num_cpus::get();
         ForkPool::with_threads(nthreads)
     }
 
     /// Create a new `ForkPool` with `nthreads` `WorkerThread`s at its disposal.
-    pub fn with_threads(nthreads: usize) -> ForkPool<Arg,Ret> {
+    pub fn with_threads(nthreads: usize) -> ForkPool<'a, Arg, Ret> {
         assert!(nthreads > 0);
         let supervisor_channel = PoolSupervisor::new(nthreads);
 
@@ -328,14 +315,14 @@ impl<Arg: 'static + Send, Ret: 'static + Send + Sync> ForkPool<Arg,Ret> {
             arg: arg,
             join: ResultReceiver::Channel(Arc::new(Mutex::new(result_channel))),
         };
-        self.supervisor.send(SupervisorMsg::Schedule(task)).unwrap();
+        self.supervisor.schedule(task);
 
         result_port
     }
 }
 
-impl<Arg: 'static + Send, Ret: 'static + Send + Sync> Drop for ForkPool<Arg,Ret> {
-    fn drop(&mut self) {
-        self.supervisor.send(SupervisorMsg::Shutdown).unwrap();
-    }
-}
+// impl<'a, Arg: Send, Ret: Send + Sync> Drop for ForkPool<'a, Arg, Ret> {
+//     fn drop(&mut self) {
+//         println!("Dropping ForkPool");
+//     }
+// }

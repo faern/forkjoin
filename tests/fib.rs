@@ -22,7 +22,6 @@ fn many_fib_15() {
     }
     for port in ports {
         let result: usize = port.recv().unwrap();
-        println!("fib({}) = {}", n, result);
         assert_eq!(987, result);
     }
 }
