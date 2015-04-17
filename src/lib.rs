@@ -163,7 +163,8 @@ extern crate num_cpus;
 use std::ptr::Unique;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc,Mutex};
-use std::sync::mpsc::{channel,Sender,Receiver};
+use std::sync::mpsc::{channel,Sender,Receiver,TryRecvError};
+use std::fmt;
 
 mod workerthread;
 mod poolsupervisor;
@@ -271,6 +272,58 @@ pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
     Steal,
 }
 
+/// Enum indicating there was a problem fetching a result from a job.
+#[derive(Debug)]
+pub enum ResultError {
+    /// Returned from `try_recv` when no results are available at the time of the call
+    NoResult,
+    /// Returned from `try_recv` and `recv` when there are no more results to fetch
+    Completed,
+}
+impl fmt::Display for ResultError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg = match *self {
+            ResultError::Completed => "The job has finished executing, no results left to read",
+            ResultError::NoResult => "No results available",
+        };
+        write!(f, "{}", msg)
+    }
+}
+
+pub struct JobHandle<Ret> {
+    port: Receiver<Ret>,
+}
+impl<Ret> JobHandle<Ret> {
+    pub fn try_recv(&self) -> Result<Ret, ResultError> {
+        match self.port.try_recv() {
+            Ok(res) => Ok(res),
+            Err(e) => match e {
+                TryRecvError::Empty => Err(ResultError::NoResult),
+                TryRecvError::Disconnected => Err(ResultError::Completed),
+            }
+        }
+    }
+
+    pub fn recv(&self) -> Result<Ret, ResultError> {
+        match self.port.recv() {
+            Ok(res) => Ok(res),
+            Err(_) => Err(ResultError::Completed),
+        }
+    }
+}
+impl<Ret> Drop for JobHandle<Ret> {
+    /// Don't allow a job to be dropped while it's still computing.
+    /// Block and fetch all results.
+    fn drop(&mut self) {
+        loop {
+            match self.port.recv() {
+                Err(_) => break,
+                Ok(_) => (),
+            }
+        }
+    }
+}
+
 /// Main struct of the ForkJoin library.
 /// Represents a pool of threads implementing a work stealing algorithm.
 pub struct ForkPool<'a, Arg: Send, Ret: Send + Sync> {
@@ -307,7 +360,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
     ///
     /// `AlgoStyle::Search` algorithm might return arbitrary number of messages.
     /// Algorithm termination is detected by the `Receiver<Ret>` returning an `Err`
-    pub fn schedule(&self, fun: TaskFun<Arg, Ret>, arg: Arg) -> Receiver<Ret> {
+    pub fn schedule(&self, fun: TaskFun<Arg, Ret>, arg: Arg) -> JobHandle<Ret> {
         let (result_channel, result_port) = channel();
 
         let task = Task {
@@ -317,7 +370,9 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
         };
         self.supervisor.schedule(task);
 
-        result_port
+        JobHandle {
+            port: result_port
+        }
     }
 }
 
