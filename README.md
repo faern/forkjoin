@@ -23,7 +23,7 @@ fully computed.
 ## Example of summa style
 
 ```rust
-use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle};
+use forkjoin::{TaskResult,Fork,ForkPool,JoinStyle,SummaStyle};
 
 fn fib_30_with_4_threads() {
     let forkpool = ForkPool::with_threads(4);
@@ -39,7 +39,7 @@ fn fib_task(n: usize) -> TaskResult<usize, usize> {
         TaskResult::Fork(Fork{
             fun: fib_task,
             args: vec![n-1,n-2],
-            join: AlgoStyle::Summa(fib_join)})
+            join: JoinStyle::Summa(SummaStyle::JustJoin(fib_join))})
     }
 }
 
@@ -62,7 +62,7 @@ and can abort before all tasks in the tree have been computed.
 ## Example of search style
 
 ```rust
-use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
+use forkjoin::{ForkPool,TaskResult,Fork,JoinStyle};
 
 type Queen = usize;
 type Board = Vec<Queen>;
@@ -102,7 +102,7 @@ fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
         TaskResult::Fork(Fork{
             fun: nqueens_task,
             args: fork_args,
-            join: AlgoStyle::Search
+            join: JoinStyle::Search
         })
     }
 }

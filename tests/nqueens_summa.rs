@@ -4,7 +4,7 @@
 extern crate core;
 extern crate forkjoin;
 
-use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
+use forkjoin::{ForkPool,TaskResult,Fork,JoinStyle,SummaStyle};
 
 #[test]
 fn summa_nqueens() {
@@ -72,13 +72,13 @@ fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Solutions> 
         TaskResult::Fork(Fork {
             fun: nqueens_task,
             args: fork_args,
-            join: AlgoStyle::Summa(nqueens_join, vec![])
+            join: JoinStyle::Summa(SummaStyle::JustJoin(nqueens_join))
         })
     }
 }
 
 #[cfg(test)]
-fn nqueens_join(_: &Solutions, values: &[Solutions]) -> Solutions {
+fn nqueens_join(values: &[Solutions]) -> Solutions {
     let mut all_solutions: Solutions = vec![];
     for solutions in values {
         all_solutions.push_all(&solutions[..]);

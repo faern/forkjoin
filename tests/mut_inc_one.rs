@@ -1,7 +1,7 @@
 extern crate forkjoin;
 
 use std::mem;
-use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle};
+use forkjoin::{TaskResult,Fork,ForkPool,JoinStyle,SummaStyle};
 
 #[test]
 fn mut_inc_one_to_five() {
@@ -31,10 +31,10 @@ fn mut_inc_task(d: &mut [usize]) -> TaskResult<&mut [usize], ()> {
         TaskResult::Fork(Fork {
             fun: mut_inc_task,
             args: vec![d1, d2],
-            join: AlgoStyle::Summa(mut_inc_join, ())
+            join: JoinStyle::Summa(SummaStyle::JustJoin(mut_inc_join))
         })
     }
 }
 
 #[cfg(test)]
-fn mut_inc_join(_: &(), _: &[()]) -> () {}
+fn mut_inc_join(_: &[()]) -> () {}

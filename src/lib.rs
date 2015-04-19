@@ -32,7 +32,7 @@
 //!
 //! ## Example of summa style
 //!
-//!     use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle};
+//!     use forkjoin::{TaskResult,Fork,ForkPool,JoinStyle,SummaStyle};
 //!
 //!     fn fib_30_with_4_threads() {
 //!         let forkpool = ForkPool::with_threads(4);
@@ -48,11 +48,11 @@
 //!             TaskResult::Fork(Fork{
 //!                 fun: fib_task,
 //!                 args: vec![n-1,n-2],
-//!                 join: AlgoStyle::Summa(fib_join, 0)})
+//!                 join: JoinStyle::Summa(SummaStyle::JustJoin(fib_join))})
 //!         }
 //!     }
 //!
-//!     fn fib_join(_: &usize, values: &[usize]) -> usize {
+//!     fn fib_join(values: &[usize]) -> usize {
 //!         values.iter().fold(0, |acc, &v| acc + v)
 //!     }
 //!
@@ -69,7 +69,7 @@
 //!
 //! ## Example of search style
 //!
-//!     use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
+//!     use forkjoin::{ForkPool,TaskResult,Fork,JoinStyle};
 //!
 //!     type Queen = usize;
 //!     type Board = Vec<Queen>;
@@ -109,7 +109,7 @@
 //!             TaskResult::Fork(Fork{
 //!                 fun: nqueens_task,
 //!                 args: fork_args,
-//!                 join: AlgoStyle::Search
+//!                 join: JoinStyle::Search
 //!             })
 //!         }
 //!     }
@@ -176,8 +176,12 @@ use ::poolsupervisor::PoolSupervisor;
 pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg) -> TaskResult<Arg, Ret>;
 
 /// Type definition of functions joining together forked results.
-/// Only used in `AlgoStyle::Summa` algorithms.
-pub type TaskJoin<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
+/// Only used in `JoinStyle::Summa` algorithms.
+pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
+
+/// Similar to `TaskJoin` but takes an extra argument sent directly
+/// from the task by using `JoinStyle::SummaArg`.
+pub type TaskJoinArg<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
 pub struct Task<Arg: Send, Ret: Send + Sync> {
     pub fun: TaskFun<Arg, Ret>,
@@ -190,9 +194,9 @@ pub enum TaskResult<Arg, Ret> {
     /// Return this from `TaskFun` to indicate a computed value. Represents a leaf in the
     /// problem tree of the computation.
     ///
-    /// If the algorithm style is `AlgoStyle::Search` the value in `Done` will be sent
+    /// If the algorithm style is `JoinStyle::Search` the value in `Done` will be sent
     /// directly to the `Receiver<Ret>` held by the submitter of the computation.
-    /// If the algorithm style is `AlgoStyle::Summa` the value in `Done` will be inserted
+    /// If the algorithm style is `JoinStyle::Summa` the value in `Done` will be inserted
     /// into the `JoinBarrier` allocated by `ForkJoin`. If it's the last task to complete
     /// the join function will be executed.
     Done(Ret),
@@ -210,19 +214,19 @@ pub struct Fork<Arg, Ret> {
     pub args: Vec<Arg>,
     /// Enum showing the type of algorithm, indicate what should be done with results from
     /// subtasks created by this fork.
-    pub join: AlgoStyle<Ret>,
+    pub join: JoinStyle<Ret>,
 }
 
 /// Enum representing the style of the executed algorithm.
-pub enum AlgoStyle<Ret> {
+pub enum JoinStyle<Ret> {
     /// A `Summa` style algorithm join together the results of the individual nodes
     /// in the problem tree to finally form one result for the entire computation.
     ///
     /// Examples of this style include recursively computing fibbonacci numbers
     /// and summing binary trees.
     ///
-    /// Takes a function pointer that joins together results as argument.
-    Summa(TaskJoin<Ret>, Ret),
+    /// Takes a `SummaStyle` to indicate what type of join function to use.
+    Summa(SummaStyle<Ret>),
 
     /// A `Search` style algoritm return their results to the listener directly upon a
     /// `TaskResult::Done`.
@@ -232,14 +236,18 @@ pub enum AlgoStyle<Ret> {
     Search,
 }
 
+pub enum SummaStyle<Ret> {
+    JustJoin(TaskJoin<Ret>),
+    ExtraArg(TaskJoinArg<Ret>, Ret),
+}
+
 /// Internal struct for receiving results from multiple subtasks in parallel
 pub struct JoinBarrier<Ret: Send + Sync> {
     /// Atomic counter counting missing arguments before this join can be executed.
     pub ret_counter: AtomicUsize,
-    /// Function pointer to execute when all arguments have arrived.
-    pub joinfun: TaskJoin<Ret>,
-    /// Argument passed directly from the forking task to its join
-    pub joinarg: Ret,
+    /// Function to execute when all arguments have arrived.
+    /// Valid values are `Summa` and `SummaArg`
+    pub joinfun: SummaStyle<Ret>,
     /// Vector holding the results of all subtasks. Initialized unsafely so can't be used
     /// for anything until all the values have been put in place.
     pub joinfunarg: Vec<Ret>,
@@ -356,9 +364,9 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
     /// Schedule a new computation on this `ForkPool`. Returns instantly.
     ///
     /// Return value(s) can be read from the returned `Receiver<Ret>`.
-    /// `AlgoStyle::Summa` will only return one message on this channel.
+    /// `JoinStyle::Summa` will only return one message on this channel.
     ///
-    /// `AlgoStyle::Search` algorithm might return arbitrary number of messages.
+    /// `JoinStyle::Search` algorithm might return arbitrary number of messages.
     /// Algorithm termination is detected by the `Receiver<Ret>` returning an `Err`
     pub fn schedule(&self, fun: TaskFun<Arg, Ret>, arg: Arg) -> JobHandle<Ret> {
         let (result_channel, result_port) = channel();

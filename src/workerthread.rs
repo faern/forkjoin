@@ -22,7 +22,7 @@ use std::thread;
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
-use ::{Task,JoinBarrier,TaskResult,Fork,ResultReceiver,WorkerMsg,AlgoStyle};
+use ::{Task,JoinBarrier,TaskResult,Fork,ResultReceiver,WorkerMsg,JoinStyle,SummaStyle};
 use ::poolsupervisor::SupervisorMsg;
 
 static STEAL_TRIES: usize = 5;
@@ -152,60 +152,74 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 
     fn handle_fork(&self, fork: Fork<Arg, Ret>, parent_join: ResultReceiver<Ret>) {
         let len: usize = fork.args.len();
-        let mut resultreceivers = vec![];
-        match fork.join {
-            AlgoStyle::Summa(joinfun, joinarg) => {
-                if len == 0 {
-                    let joinres = (joinfun)(&joinarg, &Vec::new()[..]);
-                    self.handle_join(&parent_join, joinres);
-                } else {
-                    let (rets, rets_ptr) = create_result_vec::<Ret>(len);
+        if len == 0 {
+            self.handle_fork_zero(fork.join, parent_join);
+        } else {
+            let resultreceivers = self.create_result_receivers(len, fork.join, parent_join);
+            for (arg,resultreceiver) in fork.args.into_iter().zip(resultreceivers.into_iter()) {
+                let task = Task {
+                    fun: fork.fun,
+                    arg: arg,
+                    join: resultreceiver,
+                };
+                self.deque.push(task);
+            }
+        }
+    }
 
-                    let join_arc = Arc::new(JoinBarrier {
-                        ret_counter: AtomicUsize::new(len),
-                        joinfun: joinfun,
-                        joinarg: joinarg,
-                        joinfunarg: rets,
-                        parent: parent_join,
-                    });
+    fn handle_fork_zero(&self, join: JoinStyle<Ret>, parent_join: ResultReceiver<Ret>) {
+        match join {
+            JoinStyle::Summa(summastyle) => {
+                let joinres = match summastyle {
+                    SummaStyle::JustJoin(joinfun) => (joinfun)(&Vec::new()[..]),
+                    SummaStyle::ExtraArg(joinfun, arg) => (joinfun)(&arg, &Vec::new()[..])
+                };
+                self.handle_join(&parent_join, joinres);
+            },
+            _ => (),
+        }
+    }
 
-                    for ptr in rets_ptr.into_iter() {
-                        resultreceivers.push(ResultReceiver::Join(ptr, join_arc.clone()));
-                    }
+    fn create_result_receivers(&self, len: usize, join: JoinStyle<Ret>, parent_join: ResultReceiver<Ret>) -> Vec<ResultReceiver<Ret>> {
+        let mut resultreceivers = Vec::with_capacity(len);
+        match join {
+            JoinStyle::Summa(summastyle) => {
+                let (rets, rets_ptr) = create_result_vec::<Ret>(len);
+
+                let join_arc = Arc::new(JoinBarrier {
+                    ret_counter: AtomicUsize::new(len),
+                    joinfun: summastyle,
+                    joinfunarg: rets,
+                    parent: parent_join,
+                });
+
+                for ptr in rets_ptr.into_iter() {
+                    resultreceivers.push(ResultReceiver::Join(ptr, join_arc.clone()));
                 }
             },
-            AlgoStyle::Search => {
+            JoinStyle::Search => {
                 for _ in 0..len {
                     resultreceivers.push(parent_join.clone());
                 }
             }
         }
-
-        // Will loop until one vec run out. So if 0 forks, will not run a single iteration
-        for (arg,resultreceiver) in fork.args.into_iter().zip(resultreceivers.into_iter()) {
-            let task = Task {
-                fun: fork.fun,
-                arg: arg,
-                join: resultreceiver,
-            };
-            self.deque.push(task);
-        }
+        resultreceivers
     }
 
     fn handle_join(&self, join: &ResultReceiver<Ret>, value: Ret) {
         match *join {
-            ResultReceiver::Join(ref ptr, ref join) => {
+            ResultReceiver::Join(ref ptr, ref joinbarrier) => {
                 unsafe { write(**ptr, value); } // Writes without dropping since only null in place
-                if join.ret_counter.fetch_sub(1, Ordering::SeqCst) == 1 {
-                    let joinres = (join.joinfun)(&join.joinarg, &join.joinfunarg);
-                    self.handle_join(&join.parent, joinres);
+                if joinbarrier.ret_counter.fetch_sub(1, Ordering::SeqCst) == 1 {
+                    let joinres = match joinbarrier.joinfun {
+                        SummaStyle::JustJoin(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
+                        SummaStyle::ExtraArg(ref joinfun, ref arg) => (joinfun)(&arg, &joinbarrier.joinfunarg),
+                    };
+                    self.handle_join(&joinbarrier.parent, joinres);
                 }
             }
             ResultReceiver::Channel(ref channel) => {
-                match channel.lock().unwrap().send(value) {
-                    Err(..) => println!("Computation owner don't listen for results anymore"),
-                    _ => (),
-                }
+                channel.lock().unwrap().send(value).unwrap();
             }
         }
     }

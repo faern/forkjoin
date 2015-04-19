@@ -1,6 +1,6 @@
 extern crate forkjoin;
 
-use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle};
+use forkjoin::{TaskResult,Fork,ForkPool,JoinStyle,SummaStyle};
 
 #[test]
 fn fib_40() {
@@ -34,13 +34,13 @@ fn fib_task(n: usize) -> TaskResult<usize, usize> {
         TaskResult::Fork(Fork {
             fun: fib_task,
             args: vec![n-1,n-2],
-            join: AlgoStyle::Summa(fib_join, 0)
+            join: JoinStyle::Summa(SummaStyle::JustJoin(fib_join))
         })
     }
 }
 
 #[cfg(test)]
-fn fib_join(_: &usize, values: &[usize]) -> usize {
+fn fib_join(values: &[usize]) -> usize {
     values.iter().fold(0, |acc, &v| acc + v)
 }
 

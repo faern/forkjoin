@@ -1,6 +1,6 @@
 extern crate forkjoin;
 
-use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle};
+use forkjoin::{TaskResult,Fork,ForkPool,JoinStyle,SummaStyle};
 
 #[cfg(test)]
 struct Tree {
@@ -65,7 +65,7 @@ fn sum_tree_task(t: &Tree) -> TaskResult<&Tree, usize> {
         TaskResult::Fork(Fork {
             fun: sum_tree_task,
             args: fork_args,
-            join: AlgoStyle::Summa(sum_tree_join, val),
+            join: JoinStyle::Summa(SummaStyle::ExtraArg(sum_tree_join, val)),
         })
     }
 }
