@@ -16,8 +16,8 @@
 use std::sync::mpsc::{channel,Sender,Receiver};
 use std::thread;
 
-use ::{Task,WorkerMsg};
-use ::workerthread::WorkerThread;
+use ::Task;
+use ::workerthread::{WorkerThread,WorkerMsg};
 
 /// Messages from `ForkPool` and `WorkerThread` to the `PoolSupervisor`.
 pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
@@ -32,33 +32,6 @@ pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
     Shutdown,
 }
 
-pub struct PoolSupervisor<'a, Arg: Send, Ret: Send + Sync> {
-    joinguard: thread::JoinGuard<'a, ()>,
-    channel: Sender<SupervisorMsg<Arg, Ret>>,
-}
-
-impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisor<'a, Arg, Ret> {
-    pub fn new(nthreads: usize) -> PoolSupervisor<'a, Arg, Ret> {
-        let (channel, joinguard) = PoolSupervisorThread::new(nthreads);
-
-        PoolSupervisor {
-            joinguard: joinguard,
-            channel: channel,
-        }
-    }
-
-    pub fn schedule(&self, task: Task<Arg, Ret>) {
-        self.channel.send(SupervisorMsg::Schedule(task)).unwrap();
-    }
-}
-
-impl<'a, Arg: Send, Ret: Send + Sync> Drop for PoolSupervisor<'a, Arg, Ret> {
-    fn drop(&mut self) {
-        //println!("Dropping PoolSupervisor");
-        self.channel.send(SupervisorMsg::Shutdown).unwrap();
-    }
-}
-
 struct ThreadInfo<'a, Arg: Send, Ret: Send + Sync> {
     channel: Sender<WorkerMsg<Arg,Ret>>,
     joinguard: thread::JoinGuard<'a, ()>,
@@ -70,7 +43,7 @@ pub struct PoolSupervisorThread<'a, Arg: Send, Ret: Send + Sync> {
 }
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisorThread<'a, Arg, Ret> {
-    pub fn new(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread::JoinGuard<'a, ()>) {
+    pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread::JoinGuard<'a, ()>) {
         assert!(nthreads > 0);
 
         let (worker_channel, supervisor_port) = channel();

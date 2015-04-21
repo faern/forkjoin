@@ -4,7 +4,7 @@
 extern crate core;
 extern crate forkjoin;
 
-use forkjoin::{ForkPool,TaskResult,Fork,JoinStyle};
+use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
 
 #[test]
 fn search_nqueens() {
@@ -73,7 +73,7 @@ fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
                 fork_args.push((q2, n));
             }
         }
-        TaskResult::Fork(Fork{fun: nqueens_task, args: fork_args, join: JoinStyle::Search})
+        TaskResult::Fork(Fork{fun: nqueens_task, args: fork_args, join: AlgoStyle::Search})
     }
 }
 

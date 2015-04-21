@@ -32,7 +32,7 @@
 //!
 //! ## Example of summa style
 //!
-//!     use forkjoin::{TaskResult,Fork,ForkPool,JoinStyle,SummaStyle};
+//!     use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle,SummaStyle};
 //!
 //!     fn fib_30_with_4_threads() {
 //!         let forkpool = ForkPool::with_threads(4);
@@ -48,7 +48,7 @@
 //!             TaskResult::Fork(Fork{
 //!                 fun: fib_task,
 //!                 args: vec![n-1,n-2],
-//!                 join: JoinStyle::Summa(SummaStyle::JustJoin(fib_join))})
+//!                 join: AlgoStyle::Summa(SummaStyle::NoArg(fib_join))})
 //!         }
 //!     }
 //!
@@ -69,7 +69,7 @@
 //!
 //! ## Example of search style
 //!
-//!     use forkjoin::{ForkPool,TaskResult,Fork,JoinStyle};
+//!     use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
 //!
 //!     type Queen = usize;
 //!     type Board = Vec<Queen>;
@@ -109,7 +109,7 @@
 //!             TaskResult::Fork(Fork{
 //!                 fun: nqueens_task,
 //!                 args: fork_args,
-//!                 join: JoinStyle::Search
+//!                 join: AlgoStyle::Search
 //!             })
 //!         }
 //!     }
@@ -169,22 +169,22 @@ use std::fmt;
 mod workerthread;
 mod poolsupervisor;
 
-use ::poolsupervisor::PoolSupervisor;
+use ::poolsupervisor::{PoolSupervisorThread,SupervisorMsg};
 
 /// Type definition of the main function in a task.
 /// Your task functions must have this signature
 pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg) -> TaskResult<Arg, Ret>;
 
 /// Type definition of functions joining together forked results.
-/// Only used in `JoinStyle::Summa` algorithms.
+/// Only used in `AlgoStyle::Summa` algorithms.
 pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
 
 /// Similar to `TaskJoin` but takes an extra argument sent directly
-/// from the task by using `JoinStyle::SummaArg`.
+/// from the task by using `AlgoStyle::SummaArg`.
 pub type TaskJoinArg<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
 pub struct Task<Arg: Send, Ret: Send + Sync> {
-    pub fun: TaskFun<Arg, Ret>,
+    pub algo: Algorithm,
     pub arg: Arg,
     pub join: ResultReceiver<Ret>,
 }
@@ -194,31 +194,20 @@ pub enum TaskResult<Arg, Ret> {
     /// Return this from `TaskFun` to indicate a computed value. Represents a leaf in the
     /// problem tree of the computation.
     ///
-    /// If the algorithm style is `JoinStyle::Search` the value in `Done` will be sent
+    /// If the algorithm style is `AlgoStyle::Search` the value in `Done` will be sent
     /// directly to the `Receiver<Ret>` held by the submitter of the computation.
-    /// If the algorithm style is `JoinStyle::Summa` the value in `Done` will be inserted
+    /// If the algorithm style is `AlgoStyle::Summa` the value in `Done` will be inserted
     /// into the `JoinBarrier` allocated by `ForkJoin`. If it's the last task to complete
     /// the join function will be executed.
     Done(Ret),
 
     /// Return this from `TaskFun` to indicate that the algorithm wants to fork.
     /// Takes a `Fork` instance describing how to fork.
-    Fork(Fork<Arg, Ret>),
-}
-
-/// Struct describing how a `Task` want to fork into multiple subtasks.
-pub struct Fork<Arg, Ret> {
-    /// A function pointer. The function that will be executed by all the subtasks
-    pub fun: TaskFun<Arg, Ret>,
-    /// A list of the arguments to the subtasks. One subtask will be created for each argument.
-    pub args: Vec<Arg>,
-    /// Enum showing the type of algorithm, indicate what should be done with results from
-    /// subtasks created by this fork.
-    pub join: JoinStyle<Ret>,
+    Fork(Vec<Arg>, Option<Ret>),
 }
 
 /// Enum representing the style of the executed algorithm.
-pub enum JoinStyle<Ret> {
+pub enum AlgoStyle<Ret> {
     /// A `Summa` style algorithm join together the results of the individual nodes
     /// in the problem tree to finally form one result for the entire computation.
     ///
@@ -237,8 +226,8 @@ pub enum JoinStyle<Ret> {
 }
 
 pub enum SummaStyle<Ret> {
-    JustJoin(TaskJoin<Ret>),
-    ExtraArg(TaskJoinArg<Ret>, Ret),
+    NoArg(TaskJoin<Ret>),
+    Arg(TaskJoinArg<Ret>),
 }
 
 /// Internal struct for receiving results from multiple subtasks in parallel
@@ -248,6 +237,7 @@ pub struct JoinBarrier<Ret: Send + Sync> {
     /// Function to execute when all arguments have arrived.
     /// Valid values are `Summa` and `SummaArg`
     pub joinfun: SummaStyle<Ret>,
+    pub joinarg: Option<Ret>,
     /// Vector holding the results of all subtasks. Initialized unsafely so can't be used
     /// for anything until all the values have been put in place.
     pub joinfunarg: Vec<Ret>,
@@ -272,14 +262,6 @@ impl<Ret: Send + Sync> Clone for ResultReceiver<Ret> {
     }
 }
 
-/// Messages from the `PoolSupervisor` to `WorkerThread`s
-pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
-    /// A new `Task` to be scheduled for execution by the `WorkerThread`
-    Schedule(Task<Arg,Ret>),
-    /// Tell the `WorkerThread` to simply try to steal from the other `WorkerThread`s
-    Steal,
-}
-
 /// Enum indicating there was a problem fetching a result from a job.
 #[derive(Debug)]
 pub enum ResultError {
@@ -298,10 +280,11 @@ impl fmt::Display for ResultError {
     }
 }
 
-pub struct JobHandle<Ret> {
+pub struct Job<Ret> {
     port: Receiver<Ret>,
 }
-impl<Ret> JobHandle<Ret> {
+
+impl<Ret> Job<Ret> {
     pub fn try_recv(&self) -> Result<Ret, ResultError> {
         match self.port.try_recv() {
             Ok(res) => Ok(res),
@@ -319,7 +302,8 @@ impl<Ret> JobHandle<Ret> {
         }
     }
 }
-impl<Ret> Drop for JobHandle<Ret> {
+
+impl<Ret> Drop for Job<Ret> {
     /// Don't allow a job to be dropped while it's still computing.
     /// Block and fetch all results.
     fn drop(&mut self) {
@@ -332,10 +316,49 @@ impl<Ret> Drop for JobHandle<Ret> {
     }
 }
 
+pub trait Algorithm {
+    /// Should return a function pointer. The function that will be executed by all the subtasks
+    fn get_fun() -> TaskFun<Arg, Ret>;
+
+    /// Enum showing the type of algorithm, indicate what should be done with results from
+    /// subtasks created forks of this algorithm.
+    fn get_style() -> AlgoStyle<Ret>;
+}
+
+pub struct AlgoOnPool<Algo: Algorithm, Arg, Ret> {
+    forkpool: Arc<ForkPool<Arg, Ret>>,
+    algo: Algo,
+}
+
+impl AlgoOnPool {
+    /// Schedule a new computation on this `ForkPool`. Returns instantly.
+    ///
+    /// Return value(s) can be read from the returned `Receiver<Ret>`.
+    /// `AlgoStyle::Summa` will only return one message on this channel.
+    ///
+    /// `AlgoStyle::Search` algorithm might return arbitrary number of messages.
+    /// Algorithm termination is detected by the `Receiver<Ret>` returning an `Err`
+    pub fn schedule(&self, arg: Arg) -> Job<Ret> {
+        let (chan, port) = channel();
+
+        let task = Task {
+            algo: self.algo,
+            arg: arg,
+            join: ResultReceiver::Channel(Arc::new(Mutex::new(chan))),
+        };
+        self.forkpool.schedule(task);
+
+        Job {
+            port: port
+        }
+    }
+}
+
 /// Main struct of the ForkJoin library.
 /// Represents a pool of threads implementing a work stealing algorithm.
 pub struct ForkPool<'a, Arg: Send, Ret: Send + Sync> {
-    supervisor: PoolSupervisor<'a, Arg, Ret>,
+    joinguard: thread::JoinGuard<'a, ()>,
+    channel: Sender<SupervisorMsg<Arg, Ret>>,
 }
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
@@ -354,38 +377,29 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
     /// Create a new `ForkPool` with `nthreads` `WorkerThread`s at its disposal.
     pub fn with_threads(nthreads: usize) -> ForkPool<'a, Arg, Ret> {
         assert!(nthreads > 0);
-        let supervisor_channel = PoolSupervisor::new(nthreads);
+        let (channel, joinguard) = PoolSupervisorThread::spawn(nthreads);
 
         ForkPool {
-            supervisor: supervisor_channel,
+            joinguard: joinguard,
+            channel: channel,
         }
     }
 
-    /// Schedule a new computation on this `ForkPool`. Returns instantly.
-    ///
-    /// Return value(s) can be read from the returned `Receiver<Ret>`.
-    /// `JoinStyle::Summa` will only return one message on this channel.
-    ///
-    /// `JoinStyle::Search` algorithm might return arbitrary number of messages.
-    /// Algorithm termination is detected by the `Receiver<Ret>` returning an `Err`
-    pub fn schedule(&self, fun: TaskFun<Arg, Ret>, arg: Arg) -> JobHandle<Ret> {
-        let (result_channel, result_port) = channel();
-
-        let task = Task {
-            fun: fun,
-            arg: arg,
-            join: ResultReceiver::Channel(Arc::new(Mutex::new(result_channel))),
-        };
-        self.supervisor.schedule(task);
-
-        JobHandle {
-            port: result_port
+    pub fn init_algorithm<Algo: Algorithm>(&self, algorithm: Algo) -> AlgoOnPool<Algo, Arg, Ret> {
+        AlgoOnPool {
+            forkpool: Arc::new(self),
+            algo: algorithm,
         }
+    }
+
+    pub fn schedule(&self, task: Task<Arg, Ret>) {
+        self.channel.send(SupervisorMsg::Schedule(task)).unwrap();
     }
 }
 
-// impl<'a, Arg: Send, Ret: Send + Sync> Drop for ForkPool<'a, Arg, Ret> {
-//     fn drop(&mut self) {
-//         println!("Dropping ForkPool");
-//     }
-// }
+impl<'a, Arg: Send, Ret: Send + Sync> Drop for ForkPool<'a, Arg, Ret> {
+    fn drop(&mut self) {
+        println!("Dropping ForkPool");
+        self.channel.send(SupervisorMsg::Shutdown).unwrap();
+    }
+}

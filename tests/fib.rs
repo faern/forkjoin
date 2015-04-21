@@ -1,6 +1,6 @@
 extern crate forkjoin;
 
-use forkjoin::{TaskResult,Fork,ForkPool,JoinStyle,SummaStyle};
+use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle,SummaStyle, Algorithm};
 
 #[test]
 fn fib_40() {
@@ -27,15 +27,24 @@ fn many_fib_15() {
 }
 
 #[cfg(test)]
+struct Fib;
+
+impl Algorithm for Fib {
+    fn get_fun() -> TaskFun<Arg, Ret> {
+        fib_task
+    }
+
+    fn get_style() -> AlgoStyle<Ret> {
+        AlgoStyle::Summa(SummaStyle::NoArg(fib_join))
+    }
+}
+
+#[cfg(test)]
 fn fib_task(n: usize) -> TaskResult<usize, usize> {
     if n < 10 {
         TaskResult::Done(fib(n))
     } else {
-        TaskResult::Fork(Fork {
-            fun: fib_task,
-            args: vec![n-1,n-2],
-            join: JoinStyle::Summa(SummaStyle::JustJoin(fib_join))
-        })
+        TaskResult::Fork(vec![n-1,n-2], None)
     }
 }
 

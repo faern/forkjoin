@@ -4,7 +4,7 @@
 extern crate core;
 extern crate forkjoin;
 
-use forkjoin::{ForkPool,TaskResult,Fork,JoinStyle,SummaStyle};
+use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle,SummaStyle};
 
 #[test]
 fn summa_nqueens() {
@@ -72,7 +72,7 @@ fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Solutions> 
         TaskResult::Fork(Fork {
             fun: nqueens_task,
             args: fork_args,
-            join: JoinStyle::Summa(SummaStyle::JustJoin(nqueens_join))
+            join: AlgoStyle::Summa(SummaStyle::NoArg(nqueens_join))
         })
     }
 }

@@ -22,10 +22,18 @@ use std::thread;
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
-use ::{Task,JoinBarrier,TaskResult,Fork,ResultReceiver,WorkerMsg,JoinStyle,SummaStyle};
+use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle};
 use ::poolsupervisor::SupervisorMsg;
 
 static STEAL_TRIES: usize = 5;
+
+/// Messages from the `PoolSupervisor` to `WorkerThread`s
+pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
+    /// A new `Task` to be scheduled for execution by the `WorkerThread`
+    Schedule(Task<Arg,Ret>),
+    /// Tell the `WorkerThread` to simply try to steal from the other `WorkerThread`s
+    Steal,
+}
 
 pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     id: usize,
@@ -111,12 +119,13 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     }
 
     fn execute_task(&self, task: Task<Arg, Ret>) {
-        match (task.fun)(task.arg) {
+        let fun = task.algo.get_fun();
+        match (fun)(task.arg) {
             TaskResult::Done(ret) => {
-                self.handle_join(&task.join, ret);
+                self.handle_done(task.join, ret);
             },
-            TaskResult::Fork(fork) => {
-                self.handle_fork(fork, task.join);
+            TaskResult::Fork(args, joinarg) => {
+                self.handle_fork(task, args, joinarg);
             }
         }
     }
@@ -150,12 +159,12 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         None
     }
 
-    fn handle_fork(&self, fork: Fork<Arg, Ret>, parent_join: ResultReceiver<Ret>) {
-        let len: usize = fork.args.len();
+    fn handle_fork(&self, task: Task<Arg, Ret>, args: Vec<Ret>, joinarg: Option<Ret>) {
+        let len: usize = args.len();
         if len == 0 {
-            self.handle_fork_zero(fork.join, parent_join);
+            self.handle_fork_zero(task, joinarg);
         } else {
-            let resultreceivers = self.create_result_receivers(len, fork.join, parent_join);
+            let resultreceivers = self.create_result_receivers(len, task, joinarg);
             for (arg,resultreceiver) in fork.args.into_iter().zip(resultreceivers.into_iter()) {
                 let task = Task {
                     fun: fork.fun,
@@ -167,58 +176,65 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         }
     }
 
-    fn handle_fork_zero(&self, join: JoinStyle<Ret>, parent_join: ResultReceiver<Ret>) {
-        match join {
-            JoinStyle::Summa(summastyle) => {
+    fn handle_fork_zero(&self, task: Task<Arg, Ret>, joinarg: Option<Ret>) {
+        match join.algo.get_style() {
+            AlgoStyle::Summa(summastyle) => {
                 let joinres = match summastyle {
-                    SummaStyle::JustJoin(joinfun) => (joinfun)(&Vec::new()[..]),
-                    SummaStyle::ExtraArg(joinfun, arg) => (joinfun)(&arg, &Vec::new()[..])
+                    SummaStyle::NoArg(joinfun) => (joinfun)(&Vec::new()[..]),
+                    SummaStyle::Arg(joinfun) => {
+                        let arg = joinarg.unwrap();
+                        (joinfun)(&arg, &Vec::new()[..])
+                    }
                 };
-                self.handle_join(&parent_join, joinres);
+                self.handle_done(task.join, joinres);
             },
             _ => (),
         }
     }
 
-    fn create_result_receivers(&self, len: usize, join: JoinStyle<Ret>, parent_join: ResultReceiver<Ret>) -> Vec<ResultReceiver<Ret>> {
+    fn create_result_receivers(&self, len: usize, task: Task<Arg, Ret>, joinarg: Option<Ret>) -> Vec<ResultReceiver<Ret>> {
         let mut resultreceivers = Vec::with_capacity(len);
-        match join {
-            JoinStyle::Summa(summastyle) => {
-                let (rets, rets_ptr) = create_result_vec::<Ret>(len);
+        match task.algo.get_style() {
+            AlgoStyle::Summa(summastyle) => {
+                let (vector, elem_ptrs) = create_result_vec::<Ret>(len);
 
                 let join_arc = Arc::new(JoinBarrier {
                     ret_counter: AtomicUsize::new(len),
                     joinfun: summastyle,
-                    joinfunarg: rets,
-                    parent: parent_join,
+                    joinarg: joinarg,
+                    joinfunarg: vector,
+                    parent: task.join,
                 });
 
-                for ptr in rets_ptr.into_iter() {
+                for ptr in elem_ptrs.into_iter() {
                     resultreceivers.push(ResultReceiver::Join(ptr, join_arc.clone()));
                 }
             },
-            JoinStyle::Search => {
+            AlgoStyle::Search => {
                 for _ in 0..len {
-                    resultreceivers.push(parent_join.clone());
+                    resultreceivers.push(task.join.clone());
                 }
             }
         }
         resultreceivers
     }
 
-    fn handle_join(&self, join: &ResultReceiver<Ret>, value: Ret) {
-        match *join {
-            ResultReceiver::Join(ref ptr, ref joinbarrier) => {
-                unsafe { write(**ptr, value); } // Writes without dropping since only null in place
+    fn handle_done(&self, join: ResultReceiver<Ret>, value: Ret) {
+        match join {
+            ResultReceiver::Join(ptr, joinbarrier) => {
+                unsafe { write(*ptr, value); } // Writes without dropping since only null in place
                 if joinbarrier.ret_counter.fetch_sub(1, Ordering::SeqCst) == 1 {
                     let joinres = match joinbarrier.joinfun {
-                        SummaStyle::JustJoin(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
-                        SummaStyle::ExtraArg(ref joinfun, ref arg) => (joinfun)(&arg, &joinbarrier.joinfunarg),
+                        SummaStyle::NoArg(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
+                        SummaStyle::Arg(ref joinfun) => {
+                            let joinarg = joinbarrier.joinarg.unwrap();
+                            (joinfun)(&joinarg, &joinbarrier.joinfunarg);
+                        },
                     };
-                    self.handle_join(&joinbarrier.parent, joinres);
+                    self.handle_done(joinbarrier.parent, joinres);
                 }
             }
-            ResultReceiver::Channel(ref channel) => {
+            ResultReceiver::Channel(channel) => {
                 channel.lock().unwrap().send(value).unwrap();
             }
         }
