@@ -165,6 +165,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc,Mutex};
 use std::sync::mpsc::{channel,Sender,Receiver,TryRecvError};
 use std::fmt;
+use std::thread;
 
 mod workerthread;
 mod poolsupervisor;
@@ -184,7 +185,7 @@ pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
 pub type TaskJoinArg<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
 pub struct Task<Arg: Send, Ret: Send + Sync> {
-    pub algo: Algorithm,
+    pub algo: Arc<Algorithm<Arg, Ret>>,
     pub arg: Arg,
     pub join: ResultReceiver<Ret>,
 }
@@ -316,21 +317,21 @@ impl<Ret> Drop for Job<Ret> {
     }
 }
 
-pub trait Algorithm {
-    /// Should return a function pointer. The function that will be executed by all the subtasks
-    fn get_fun() -> TaskFun<Arg, Ret>;
+pub struct Algorithm<Arg: Send, Ret: Send + Sync> {
+    /// A function pointer. The function that will be executed by all the subtasks
+    fun: TaskFun<Arg, Ret>,
 
     /// Enum showing the type of algorithm, indicate what should be done with results from
     /// subtasks created forks of this algorithm.
-    fn get_style() -> AlgoStyle<Ret>;
+    style: AlgoStyle<Ret>,
 }
 
-pub struct AlgoOnPool<Algo: Algorithm, Arg, Ret> {
-    forkpool: Arc<ForkPool<Arg, Ret>>,
-    algo: Algo,
+pub struct AlgoOnPool<'a, Arg: 'a + Send, Ret: 'a + Send + Sync> {
+    forkpool: &'a ForkPool<'a, Arg, Ret>,
+    algo: Arc<Algorithm<Arg, Ret>>,
 }
 
-impl AlgoOnPool {
+impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
     /// Schedule a new computation on this `ForkPool`. Returns instantly.
     ///
     /// Return value(s) can be read from the returned `Receiver<Ret>`.
@@ -342,15 +343,13 @@ impl AlgoOnPool {
         let (chan, port) = channel();
 
         let task = Task {
-            algo: self.algo,
+            algo: self.algo.clone(),
             arg: arg,
             join: ResultReceiver::Channel(Arc::new(Mutex::new(chan))),
         };
         self.forkpool.schedule(task);
 
-        Job {
-            port: port
-        }
+        Job { port: port }
     }
 }
 
@@ -385,10 +384,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
         }
     }
 
-    pub fn init_algorithm<Algo: Algorithm>(&self, algorithm: Algo) -> AlgoOnPool<Algo, Arg, Ret> {
+    pub fn init_algorithm(&self, algorithm: Algorithm<Arg, Ret>) -> AlgoOnPool<Arg, Ret> {
         AlgoOnPool {
-            forkpool: Arc::new(self),
-            algo: algorithm,
+            forkpool: self,
+            algo: Arc::new(algorithm),
         }
     }
 

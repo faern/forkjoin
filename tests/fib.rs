@@ -1,10 +1,14 @@
 extern crate forkjoin;
 
-use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle,SummaStyle, Algorithm};
+use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 
 #[test]
 fn fib_40() {
     let forkpool = ForkPool::with_threads(4);
+    let fibpool = forkpool.init_algorithm(Algorithm {
+        fun: fib_task,
+        style: AlgoStyle::Summa(SummaStyle::NoArg(fib_join)),
+    });
     let result_port = forkpool.schedule(fib_task, 40);
     let result: usize = result_port.recv().unwrap();
     assert_eq!(165580141, result);
@@ -28,16 +32,6 @@ fn many_fib_15() {
 
 #[cfg(test)]
 struct Fib;
-
-impl Algorithm for Fib {
-    fn get_fun() -> TaskFun<Arg, Ret> {
-        fib_task
-    }
-
-    fn get_style() -> AlgoStyle<Ret> {
-        AlgoStyle::Summa(SummaStyle::NoArg(fib_join))
-    }
-}
 
 #[cfg(test)]
 fn fib_task(n: usize) -> TaskResult<usize, usize> {

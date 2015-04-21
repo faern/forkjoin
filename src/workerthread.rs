@@ -119,7 +119,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     }
 
     fn execute_task(&self, task: Task<Arg, Ret>) {
-        let fun = task.algo.get_fun();
+        let fun = task.algo.fun;
         match (fun)(task.arg) {
             TaskResult::Done(ret) => {
                 self.handle_done(task.join, ret);
@@ -159,15 +159,15 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         None
     }
 
-    fn handle_fork(&self, task: Task<Arg, Ret>, args: Vec<Ret>, joinarg: Option<Ret>) {
+    fn handle_fork(&self, task: Task<Arg, Ret>, args: Vec<Arg>, joinarg: Option<Ret>) {
         let len: usize = args.len();
         if len == 0 {
             self.handle_fork_zero(task, joinarg);
         } else {
             let resultreceivers = self.create_result_receivers(len, task, joinarg);
-            for (arg,resultreceiver) in fork.args.into_iter().zip(resultreceivers.into_iter()) {
+            for (arg,resultreceiver) in args.into_iter().zip(resultreceivers.into_iter()) {
                 let task = Task {
-                    fun: fork.fun,
+                    algo: task.algo.clone(),
                     arg: arg,
                     join: resultreceiver,
                 };
@@ -177,11 +177,11 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     }
 
     fn handle_fork_zero(&self, task: Task<Arg, Ret>, joinarg: Option<Ret>) {
-        match join.algo.get_style() {
-            AlgoStyle::Summa(summastyle) => {
-                let joinres = match summastyle {
-                    SummaStyle::NoArg(joinfun) => (joinfun)(&Vec::new()[..]),
-                    SummaStyle::Arg(joinfun) => {
+        match task.algo.style {
+            AlgoStyle::Summa(ref summastyle) => {
+                let joinres = match *summastyle {
+                    SummaStyle::NoArg(ref joinfun) => (joinfun)(&Vec::new()[..]),
+                    SummaStyle::Arg(ref joinfun) => {
                         let arg = joinarg.unwrap();
                         (joinfun)(&arg, &Vec::new()[..])
                     }
@@ -194,8 +194,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 
     fn create_result_receivers(&self, len: usize, task: Task<Arg, Ret>, joinarg: Option<Ret>) -> Vec<ResultReceiver<Ret>> {
         let mut resultreceivers = Vec::with_capacity(len);
-        match task.algo.get_style() {
-            AlgoStyle::Summa(summastyle) => {
+        match task.algo.style {
+            AlgoStyle::Summa(ref summastyle) => {
                 let (vector, elem_ptrs) = create_result_vec::<Ret>(len);
 
                 let join_arc = Arc::new(JoinBarrier {
@@ -228,7 +228,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                         SummaStyle::NoArg(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
                         SummaStyle::Arg(ref joinfun) => {
                             let joinarg = joinbarrier.joinarg.unwrap();
-                            (joinfun)(&joinarg, &joinbarrier.joinfunarg);
+                            (joinfun)(&joinarg, &joinbarrier.joinfunarg)
                         },
                     };
                     self.handle_done(joinbarrier.parent, joinres);

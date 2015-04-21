@@ -52,7 +52,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisorThread<'a, Arg, Re
         let joinguard = PoolSupervisorThread {
             port: supervisor_port,
             thread_infos: thread_infos,
-        }.spawn();
+        }.start_thread();
 
         (worker_channel, joinguard)
     }
@@ -92,7 +92,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisorThread<'a, Arg, Re
         thread_infos
     }
 
-    fn spawn(self) -> thread::JoinGuard<'a, ()> {
+    fn start_thread(self) -> thread::JoinGuard<'a, ()> {
         let builder = thread::Builder::new().name(format!("fork-join supervisor"));
         let joinguard = builder.scoped(move|| {
             self.main_loop();
