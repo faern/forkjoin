@@ -184,10 +184,10 @@ pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
 /// from the task by using `AlgoStyle::SummaArg`.
 pub type TaskJoinArg<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
-pub struct Task<Arg: Send, Ret: Send + Sync> {
-    pub algo: Arc<Algorithm<Arg, Ret>>,
+pub struct Task<'algo, Arg: Send, Ret: Send + Sync> {
+    pub algo: &'algo Algorithm<Arg, Ret>,
     pub arg: Arg,
-    pub join: ResultReceiver<Ret>,
+    pub join: ResultReceiver<'algo, Ret>,
 }
 
 /// Return values from tasks. Represent a computed value or a fork of the algorithm.
@@ -232,29 +232,29 @@ pub enum SummaStyle<Ret> {
 }
 
 /// Internal struct for receiving results from multiple subtasks in parallel
-pub struct JoinBarrier<Ret: Send + Sync> {
+pub struct JoinBarrier<'style, Ret: Send + Sync> {
     /// Atomic counter counting missing arguments before this join can be executed.
     pub ret_counter: AtomicUsize,
     /// Function to execute when all arguments have arrived.
     /// Valid values are `Summa` and `SummaArg`
-    pub joinfun: SummaStyle<Ret>,
+    pub joinfun: &'style SummaStyle<Ret>,
     pub joinarg: Option<Ret>,
     /// Vector holding the results of all subtasks. Initialized unsafely so can't be used
     /// for anything until all the values have been put in place.
     pub joinfunarg: Vec<Ret>,
     /// Where to send the result of the execution of `joinfun`
-    pub parent: ResultReceiver<Ret>,
+    pub parent: ResultReceiver<'style, Ret>,
 }
 
 /// Enum describing what to do with results of `Task`s and `JoinBarrier`s.
-pub enum ResultReceiver<Ret: Send + Sync> {
+pub enum ResultReceiver<'style, Ret: Send + Sync> {
     /// Algorithm has Summa style and the value should be inserted into a `JoinBarrier`
-    Join(Unique<Ret>, Arc<JoinBarrier<Ret>>),
+    Join(Unique<Ret>, Arc<JoinBarrier<'style, Ret>>),
     /// Algorithm has Search style and results should be sent directly to the owner.
     Channel(Arc<Mutex<Sender<Ret>>>),
 }
 
-impl<Ret: Send + Sync> Clone for ResultReceiver<Ret> {
+impl<'style, Ret: Send + Sync> Clone for ResultReceiver<'style, Ret> {
     fn clone(&self) -> Self {
         match *self {
             ResultReceiver::Join(..) => panic!("Unable to clone ResultReceiver::Join"),
@@ -328,7 +328,7 @@ pub struct Algorithm<Arg: Send, Ret: Send + Sync> {
 
 pub struct AlgoOnPool<'a, Arg: 'a + Send, Ret: 'a + Send + Sync> {
     forkpool: &'a ForkPool<'a, Arg, Ret>,
-    algo: Arc<Algorithm<Arg, Ret>>,
+    algo: Algorithm<Arg, Ret>,
 }
 
 impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
@@ -357,7 +357,7 @@ impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
 /// Represents a pool of threads implementing a work stealing algorithm.
 pub struct ForkPool<'a, Arg: Send, Ret: Send + Sync> {
     joinguard: thread::JoinGuard<'a, ()>,
-    channel: Sender<SupervisorMsg<Arg, Ret>>,
+    channel: Sender<SupervisorMsg<'a, Arg, Ret>>,
 }
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
@@ -387,7 +387,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
     pub fn init_algorithm(&self, algorithm: Algorithm<Arg, Ret>) -> AlgoOnPool<Arg, Ret> {
         AlgoOnPool {
             forkpool: self,
-            algo: Arc::new(algorithm),
+            algo: algorithm,
         }
     }
 

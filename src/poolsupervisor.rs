@@ -20,30 +20,30 @@ use ::Task;
 use ::workerthread::{WorkerThread,WorkerMsg};
 
 /// Messages from `ForkPool` and `WorkerThread` to the `PoolSupervisor`.
-pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
+pub enum SupervisorMsg<'algo, Arg: Send, Ret: Send + Sync> {
     /// The WorkerThreads use this to tell the `PoolSupervisor` they don't have anything
     /// to do and that stealing did not give any new `Task`s.
     /// The argument `usize` is the id of the `WorkerThread`.
     OutOfWork(usize),
     /// The `ForkPool` uses this to schedule new tasks on the `PoolSupervisor`.
     /// The `PoolSupervisor` will later schedule these to a `WorkerThread` when it see fit.
-    Schedule(Task<Arg,Ret>),
+    Schedule(Task<'algo, Arg,Ret>),
     /// Message from the `ForkPool` to the `PoolSupervisor` to tell it to shutdown.
     Shutdown,
 }
 
-struct ThreadInfo<'a, Arg: Send, Ret: Send + Sync> {
-    channel: Sender<WorkerMsg<Arg,Ret>>,
-    joinguard: thread::JoinGuard<'a, ()>,
+struct ThreadInfo<'thread, Arg: Send, Ret: Send + Sync> {
+    channel: Sender<WorkerMsg<'thread, Arg,Ret>>,
+    joinguard: thread::JoinGuard<'thread, ()>,
 }
 
-pub struct PoolSupervisorThread<'a, Arg: Send, Ret: Send + Sync> {
-    port: Receiver<SupervisorMsg<Arg, Ret>>,
-    thread_infos: Vec<ThreadInfo<'a, Arg, Ret>>,
+pub struct PoolSupervisorThread<'thread, Arg: Send, Ret: Send + Sync> {
+    port: Receiver<SupervisorMsg<'thread, Arg, Ret>>,
+    thread_infos: Vec<ThreadInfo<'thread, Arg, Ret>>,
 }
 
-impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisorThread<'a, Arg, Ret> {
-    pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread::JoinGuard<'a, ()>) {
+impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Ret> {
+    pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<'t, Arg,Ret>>, thread::JoinGuard<'t, ()>) {
         assert!(nthreads > 0);
 
         let (worker_channel, supervisor_port) = channel();
@@ -57,7 +57,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisorThread<'a, Arg, Re
         (worker_channel, joinguard)
     }
 
-    fn spawn_workers(nthreads: usize, worker_channel: Sender<SupervisorMsg<Arg,Ret>>) -> Vec<ThreadInfo<'a,Arg,Ret>> {
+    fn spawn_workers(nthreads: usize, worker_channel: Sender<SupervisorMsg<Arg,Ret>>) -> Vec<ThreadInfo<'t, Arg, Ret>> {
         let mut threads = Vec::with_capacity(nthreads);
         let mut thread_channels = Vec::with_capacity(nthreads);
         let mut thread_stealers = Vec::with_capacity(nthreads);
@@ -92,7 +92,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> PoolSupervisorThread<'a, Arg, Re
         thread_infos
     }
 
-    fn start_thread(self) -> thread::JoinGuard<'a, ()> {
+    fn start_thread(self) -> thread::JoinGuard<'t, ()> {
         let builder = thread::Builder::new().name(format!("fork-join supervisor"));
         let joinguard = builder.scoped(move|| {
             self.main_loop();

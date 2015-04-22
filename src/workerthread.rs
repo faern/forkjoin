@@ -28,28 +28,28 @@ use ::poolsupervisor::SupervisorMsg;
 static STEAL_TRIES: usize = 5;
 
 /// Messages from the `PoolSupervisor` to `WorkerThread`s
-pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
+pub enum WorkerMsg<'algo, Arg: Send, Ret: Send + Sync> {
     /// A new `Task` to be scheduled for execution by the `WorkerThread`
-    Schedule(Task<Arg,Ret>),
+    Schedule(Task<'algo, Arg,Ret>),
     /// Tell the `WorkerThread` to simply try to steal from the other `WorkerThread`s
     Steal,
 }
 
-pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
+pub struct WorkerThread<'algo, Arg: Send, Ret: Send + Sync> {
     id: usize,
     started: bool,
-    supervisor_port: Receiver<WorkerMsg<Arg,Ret>>,
-    supervisor_channel: Sender<SupervisorMsg<Arg,Ret>>,
-    deque: Worker<Task<Arg,Ret>>,
-    stealer: Stealer<Task<Arg,Ret>>,
-    other_stealers: Vec<Stealer<Task<Arg,Ret>>>,
+    supervisor_port: Receiver<WorkerMsg<'algo, Arg, Ret>>,
+    supervisor_channel: Sender<SupervisorMsg<'algo, Arg, Ret>>,
+    deque: Worker<Task<'algo, Arg, Ret>>,
+    stealer: Stealer<Task<'algo, Arg, Ret>>,
+    other_stealers: Vec<Stealer<Task<'algo, Arg, Ret>>>,
     rng: XorShiftRng,
 }
 
-impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
+impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<'a, Arg,Ret> {
     pub fn new(id: usize,
             port: Receiver<WorkerMsg<Arg,Ret>>,
-            channel: Sender<SupervisorMsg<Arg,Ret>>) -> WorkerThread<Arg,Ret> {
+            channel: Sender<SupervisorMsg<Arg,Ret>>) -> WorkerThread<'a, Arg,Ret> {
         let pool = BufferPool::new();
         let (worker, stealer) = pool.deque();
 
