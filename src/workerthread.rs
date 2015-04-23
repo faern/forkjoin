@@ -227,7 +227,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                     let joinres = match joinbarrier.joinfun {
                         SummaStyle::NoArg(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
                         SummaStyle::Arg(ref joinfun) => {
-                            let joinarg = joinbarrier.joinarg.as_ref().unwrap();
+                            let joinarg = match joinbarrier.joinarg.as_ref() {
+                                None => panic!("Algorithm has SummaStyle::Arg, but no extra arg passed"),
+                                Some(arg) => arg,
+                            };
                             (joinfun)(joinarg, &joinbarrier.joinfunarg)
                         },
                     };
