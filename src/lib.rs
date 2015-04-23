@@ -211,6 +211,7 @@
 //! - [ ] Remove need to return None on fork with NoArg
 //! - [ ] Make it possible to use algorithms with different Arg & Ret on same pool.
 //! - [ ] Make ForkJoin work in stable Rust.
+//! - [ ] Remove mutex around channel in search style.
 
 
 #![feature(unique)]
@@ -238,13 +239,14 @@ use ::poolsupervisor::{PoolSupervisorThread,SupervisorMsg};
 pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg) -> TaskResult<Arg, Ret>;
 
 /// Type definition of functions joining together forked results.
-/// Only used in `AlgoStyle::Summa` algorithms.
+/// Only used in `AlgoStyle::Summa` algorithms with `SummaStyle::NoArg`.
 pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
 
 /// Similar to `TaskJoin` but takes an extra argument sent directly
-/// from the task by using `AlgoStyle::SummaArg`.
+/// from the task in algorithms with `SummaStyle::Arg`.
 pub type TaskJoinArg<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
+/// Internal representation of a task.
 struct Task<Arg: Send, Ret: Send + Sync> {
     pub algo: Algorithm<Arg, Ret>,
     pub arg: Arg,
@@ -257,14 +259,16 @@ pub enum TaskResult<Arg, Ret> {
     /// problem tree of the computation.
     ///
     /// If the algorithm style is `AlgoStyle::Search` the value in `Done` will be sent
-    /// directly to the `Receiver<Ret>` held by the submitter of the computation.
+    /// directly to the `Job` held by the submitter of the computation.
     /// If the algorithm style is `AlgoStyle::Summa` the value in `Done` will be inserted
-    /// into the `JoinBarrier` allocated by `ForkJoin`. If it's the last task to complete
-    /// the join function will be executed.
+    /// into a join barrier and later passed to the algorithms join function when all
+    /// subtasks have completed execution.
     Done(Ret),
 
     /// Return this from `TaskFun` to indicate that the algorithm wants to fork.
-    /// Takes a `Fork` instance describing how to fork.
+    /// Takes a list of arguments to fork on. One subtask will be created for each argument.
+    /// The second value is only used by `SummaStyle::Arg`-algorithms to send a value directly
+    /// to the `TaskJoinArg`, passing None in such algorithms will yield a panic.
     Fork(Vec<Arg>, Option<Ret>),
 }
 
@@ -282,26 +286,34 @@ pub enum AlgoStyle<Ret> {
     /// A `Search` style algoritm return their results to the listener directly upon a
     /// `TaskResult::Done`.
     ///
-    /// Examples of this style include sudoku solvers and nqueens where a node represent
-    /// a complete solution.
+    /// Examples of this style include sudoku solvers and nqueens where a node can
+    /// represent a complete solution.
     Search,
 }
 impl<Ret> Copy for AlgoStyle<Ret> {}
 impl<Ret> Clone for AlgoStyle<Ret> { fn clone(&self) -> AlgoStyle<Ret> { *self } }
 
+/// Enum indicating what type of join function an `Algorithm` will use.
 pub enum SummaStyle<Ret> {
+    /// No extra argument is passed to the join function, only the resulting values of all subtasks
     NoArg(TaskJoin<Ret>),
+
+    /// Together with the result values of the subtasks, the join function will also
+    /// be passed an argument sent directly from the `TaskFun`.
     Arg(TaskJoinArg<Ret>),
 }
 impl<Ret> Copy for SummaStyle<Ret> {}
 impl<Ret> Clone for SummaStyle<Ret> { fn clone(&self) -> SummaStyle<Ret> { *self } }
 
+/// The representation of a specific algorithm to use the ForkJoin library.
+///
+/// Create one instance of this struct for each algorithm to be executed in ForkJoin.
 pub struct Algorithm<Arg: Send, Ret: Send + Sync> {
-    /// A function pointer. The function that will be executed by all the subtasks
+    /// A function pointer. The function that will be executed by all the tasks and subtasks.
     pub fun: TaskFun<Arg, Ret>,
 
     /// Enum showing the type of algorithm, indicate what should be done with results from
-    /// subtasks created forks of this algorithm.
+    /// subtasks created by forks of this algorithm.
     pub style: AlgoStyle<Ret>,
 }
 impl<Arg: Send, Ret: Send + Sync> Copy for Algorithm<Arg,Ret> {}
@@ -314,8 +326,8 @@ struct JoinBarrier<Ret: Send + Sync> {
     /// Atomic counter counting missing arguments before this join can be executed.
     pub ret_counter: AtomicUsize,
     /// Function to execute when all arguments have arrived.
-    /// Valid values are `Summa` and `SummaArg`
     pub joinfun: SummaStyle<Ret>,
+    /// Extra argument to pass to `joinfun` only used when `joinfun` is `SummaStyle::Arg`.
     pub joinarg: Option<Ret>,
     /// Vector holding the results of all subtasks. Initialized unsafely so can't be used
     /// for anything until all the values have been put in place.
@@ -359,11 +371,16 @@ impl fmt::Display for ResultError {
     }
 }
 
+/// The handle for a computation. Can be used to fetch results of the computation.
+/// Upon drop it will wait for the entire computation to complete if it's still executing.
+/// Algorithm termination is detected by the `try_recv` and `recv` methods returning a `ResultError`
 pub struct Job<Ret> {
     port: Receiver<Ret>,
 }
 
 impl<Ret> Job<Ret> {
+    /// Attempt to get a result from this `Job` without blocking.
+    /// Will return a `ResultError` if no result is available at the time of call.
     pub fn try_recv(&self) -> Result<Ret, ResultError> {
         match self.port.try_recv() {
             Ok(res) => Ok(res),
@@ -374,6 +391,7 @@ impl<Ret> Job<Ret> {
         }
     }
 
+    /// Block and wait for a result. If a result is available it will return immediately.
     pub fn recv(&self) -> Result<Ret, ResultError> {
         match self.port.recv() {
             Ok(res) => Ok(res),
@@ -395,19 +413,20 @@ impl<Ret> Drop for Job<Ret> {
     }
 }
 
+/// A handle for a specific `Algorithm` running on a `ForkPool`.
+/// Acquired from `ForkPool::init_algorithm`.
 pub struct AlgoOnPool<'a, Arg: 'a + Send, Ret: 'a + Send + Sync> {
     forkpool: &'a ForkPool<'a, Arg, Ret>,
     algo: Algorithm<Arg, Ret>,
 }
 
 impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
-    /// Schedule a new computation on this `ForkPool`. Returns instantly.
+    /// Schedule a new computation. Returns instantly with a handle to the computation.
     ///
-    /// Return value(s) can be read from the returned `Receiver<Ret>`.
+    /// Return value(s) can be read from the returned `Job`.
     /// `AlgoStyle::Summa` will only return one message on this channel.
     ///
     /// `AlgoStyle::Search` algorithm might return arbitrary number of messages.
-    /// Algorithm termination is detected by the `Receiver<Ret>` returning an `Err`
     pub fn schedule(&self, arg: Arg) -> Job<Ret> {
         let (chan, port) = channel();
 
@@ -432,12 +451,6 @@ pub struct ForkPool<'a, Arg: Send, Ret: Send + Sync> {
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
     /// Create a new `ForkPool` using num_cpus to determine pool size
-    ///
-    /// On a X-core cpu with hyper-threading it creates 2X threads
-    /// (4 core intel with HT results in 8 threads).
-    /// This is not optimal. It makes the computer very slow and don't yield
-    /// very much speedup compared to X threads. Not sure how to best fix this.
-    /// Not very high priority.
     pub fn new() -> ForkPool<'a, Arg, Ret> {
         let nthreads = num_cpus::get();
         ForkPool::with_threads(nthreads)
@@ -454,6 +467,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
         }
     }
 
+    /// Apply a specified algorithm to this `ForkPool` and get a handle for it where jobs
+    /// can be scheduled.
     pub fn init_algorithm(&self, algorithm: Algorithm<Arg, Ret>) -> AlgoOnPool<Arg, Ret> {
         AlgoOnPool {
             forkpool: self,
