@@ -22,34 +22,34 @@ use std::thread;
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
-use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle};
+use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
 use ::poolsupervisor::SupervisorMsg;
 
 static STEAL_TRIES: usize = 5;
 
 /// Messages from the `PoolSupervisor` to `WorkerThread`s
-pub enum WorkerMsg<'algo, Arg: Send, Ret: Send + Sync> {
+pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
     /// A new `Task` to be scheduled for execution by the `WorkerThread`
-    Schedule(Task<'algo, Arg,Ret>),
+    Schedule(Task<Arg,Ret>),
     /// Tell the `WorkerThread` to simply try to steal from the other `WorkerThread`s
     Steal,
 }
 
-pub struct WorkerThread<'algo, Arg: Send, Ret: Send + Sync> {
+pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     id: usize,
     started: bool,
-    supervisor_port: Receiver<WorkerMsg<'algo, Arg, Ret>>,
-    supervisor_channel: Sender<SupervisorMsg<'algo, Arg, Ret>>,
-    deque: Worker<Task<'algo, Arg, Ret>>,
-    stealer: Stealer<Task<'algo, Arg, Ret>>,
-    other_stealers: Vec<Stealer<Task<'algo, Arg, Ret>>>,
+    supervisor_port: Receiver<WorkerMsg<Arg, Ret>>,
+    supervisor_channel: Sender<SupervisorMsg<Arg, Ret>>,
+    deque: Worker<Task<Arg, Ret>>,
+    stealer: Stealer<Task<Arg, Ret>>,
+    other_stealers: Vec<Stealer<Task<Arg, Ret>>>,
     rng: XorShiftRng,
 }
 
-impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<'a, Arg,Ret> {
+impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn new(id: usize,
             port: Receiver<WorkerMsg<Arg,Ret>>,
-            channel: Sender<SupervisorMsg<Arg,Ret>>) -> WorkerThread<'a, Arg,Ret> {
+            channel: Sender<SupervisorMsg<Arg,Ret>>) -> WorkerThread<Arg,Ret> {
         let pool = BufferPool::new();
         let (worker, stealer) = pool.deque();
 
@@ -122,10 +122,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<'a, Arg,Ret> {
         let fun = task.algo.fun;
         match (fun)(task.arg) {
             TaskResult::Done(ret) => {
-                self.handle_done(task.join, ret);
+                self.handle_done(&task.join, ret);
             },
             TaskResult::Fork(args, joinarg) => {
-                self.handle_fork(task, args, joinarg);
+                self.handle_fork(task.algo, task.join, args, joinarg);
             }
         }
     }
@@ -159,25 +159,25 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<'a, Arg,Ret> {
         None
     }
 
-    fn handle_fork(&self, task: Task<Arg, Ret>, args: Vec<Arg>, joinarg: Option<Ret>) {
+    fn handle_fork(&self, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, args: Vec<Arg>, joinarg: Option<Ret>) {
         let len: usize = args.len();
         if len == 0 {
-            self.handle_fork_zero(task, joinarg);
+            self.handle_fork_zero(algo, join, joinarg);
         } else {
-            let resultreceivers = self.create_result_receivers(len, task, joinarg);
+            let resultreceivers = self.create_result_receivers(len, algo, join, joinarg);
             for (arg,resultreceiver) in args.into_iter().zip(resultreceivers.into_iter()) {
-                let task = Task {
-                    algo: task.algo.clone(),
+                let forked_task = Task {
+                    algo: algo.clone(),
                     arg: arg,
                     join: resultreceiver,
                 };
-                self.deque.push(task);
+                self.deque.push(forked_task);
             }
         }
     }
 
-    fn handle_fork_zero(&self, task: Task<Arg, Ret>, joinarg: Option<Ret>) {
-        match task.algo.style {
+    fn handle_fork_zero(&self, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, joinarg: Option<Ret>) {
+        match algo.style {
             AlgoStyle::Summa(ref summastyle) => {
                 let joinres = match *summastyle {
                     SummaStyle::NoArg(ref joinfun) => (joinfun)(&Vec::new()[..]),
@@ -186,16 +186,16 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<'a, Arg,Ret> {
                         (joinfun)(&arg, &Vec::new()[..])
                     }
                 };
-                self.handle_done(task.join, joinres);
+                self.handle_done(&join, joinres);
             },
             _ => (),
         }
     }
 
-    fn create_result_receivers(&self, len: usize, task: Task<Arg, Ret>, joinarg: Option<Ret>) -> Vec<ResultReceiver<Ret>> {
+    fn create_result_receivers(&self, len: usize, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, joinarg: Option<Ret>) -> Vec<ResultReceiver<Ret>> {
         let mut resultreceivers = Vec::with_capacity(len);
-        match task.algo.style {
-            AlgoStyle::Summa(ref summastyle) => {
+        match algo.style {
+            AlgoStyle::Summa(summastyle) => {
                 let (vector, elem_ptrs) = create_result_vec::<Ret>(len);
 
                 let join_arc = Arc::new(JoinBarrier {
@@ -203,7 +203,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<'a, Arg,Ret> {
                     joinfun: summastyle,
                     joinarg: joinarg,
                     joinfunarg: vector,
-                    parent: task.join,
+                    parent: join,
                 });
 
                 for ptr in elem_ptrs.into_iter() {
@@ -212,29 +212,29 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<'a, Arg,Ret> {
             },
             AlgoStyle::Search => {
                 for _ in 0..len {
-                    resultreceivers.push(task.join.clone());
+                    resultreceivers.push(join.clone());
                 }
             }
         }
         resultreceivers
     }
 
-    fn handle_done(&self, join: ResultReceiver<Ret>, value: Ret) {
-        match join {
-            ResultReceiver::Join(ptr, joinbarrier) => {
-                unsafe { write(*ptr, value); } // Writes without dropping since only null in place
+    fn handle_done(&self, join: &ResultReceiver<Ret>, value: Ret) {
+        match *join {
+            ResultReceiver::Join(ref ptr, ref joinbarrier) => {
+                unsafe { write(**ptr, value); } // Writes without dropping since only null in place
                 if joinbarrier.ret_counter.fetch_sub(1, Ordering::SeqCst) == 1 {
                     let joinres = match joinbarrier.joinfun {
                         SummaStyle::NoArg(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
                         SummaStyle::Arg(ref joinfun) => {
-                            let joinarg = joinbarrier.joinarg.unwrap();
-                            (joinfun)(&joinarg, &joinbarrier.joinfunarg)
+                            let joinarg = joinbarrier.joinarg.as_ref().unwrap();
+                            (joinfun)(joinarg, &joinbarrier.joinfunarg)
                         },
                     };
-                    self.handle_done(joinbarrier.parent, joinres);
+                    self.handle_done(&joinbarrier.parent, joinres);
                 }
             }
-            ResultReceiver::Channel(channel) => {
+            ResultReceiver::Channel(ref channel) => {
                 channel.lock().unwrap().send(value).unwrap();
             }
         }

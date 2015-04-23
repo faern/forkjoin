@@ -20,30 +20,30 @@ use ::Task;
 use ::workerthread::{WorkerThread,WorkerMsg};
 
 /// Messages from `ForkPool` and `WorkerThread` to the `PoolSupervisor`.
-pub enum SupervisorMsg<'algo, Arg: Send, Ret: Send + Sync> {
+pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
     /// The WorkerThreads use this to tell the `PoolSupervisor` they don't have anything
     /// to do and that stealing did not give any new `Task`s.
     /// The argument `usize` is the id of the `WorkerThread`.
     OutOfWork(usize),
     /// The `ForkPool` uses this to schedule new tasks on the `PoolSupervisor`.
     /// The `PoolSupervisor` will later schedule these to a `WorkerThread` when it see fit.
-    Schedule(Task<'algo, Arg,Ret>),
+    Schedule(Task<Arg,Ret>),
     /// Message from the `ForkPool` to the `PoolSupervisor` to tell it to shutdown.
     Shutdown,
 }
 
 struct ThreadInfo<'thread, Arg: Send, Ret: Send + Sync> {
-    channel: Sender<WorkerMsg<'thread, Arg,Ret>>,
+    channel: Sender<WorkerMsg<Arg,Ret>>,
     joinguard: thread::JoinGuard<'thread, ()>,
 }
 
 pub struct PoolSupervisorThread<'thread, Arg: Send, Ret: Send + Sync> {
-    port: Receiver<SupervisorMsg<'thread, Arg, Ret>>,
+    port: Receiver<SupervisorMsg<Arg, Ret>>,
     thread_infos: Vec<ThreadInfo<'thread, Arg, Ret>>,
 }
 
 impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Ret> {
-    pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<'t, Arg,Ret>>, thread::JoinGuard<'t, ()>) {
+    pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread::JoinGuard<'t, ()>) {
         assert!(nthreads > 0);
 
         let (worker_channel, supervisor_port) = channel();
