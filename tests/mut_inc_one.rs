@@ -1,7 +1,7 @@
 extern crate forkjoin;
 
 use std::mem;
-use forkjoin::{TaskResult,Fork,ForkPool,JoinStyle,SummaStyle};
+use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 
 #[test]
 fn mut_inc_one_to_five() {
@@ -12,9 +12,13 @@ fn mut_inc_one_to_five() {
     };
 
     let forkpool = ForkPool::with_threads(4);
+    let mutpool = forkpool.init_algorithm(Algorithm {
+        fun: mut_inc_task,
+        style: AlgoStyle::Summa(SummaStyle::NoArg(mut_inc_join)),
+    });
 
-    let result_port = forkpool.schedule(mut_inc_task, &mut data[..]);
-    result_port.recv().unwrap();
+    let job = mutpool.schedule(&mut data[..]);
+    job.recv().unwrap();
 
     assert_eq!(vec![2,3,4,5,6], unsafe_data);
     unsafe { mem::forget(unsafe_data); }
@@ -28,11 +32,7 @@ fn mut_inc_task(d: &mut [usize]) -> TaskResult<&mut [usize], ()> {
         TaskResult::Done(())
     } else {
         let (d1,d2) = d.split_at_mut(len/2);
-        TaskResult::Fork(Fork {
-            fun: mut_inc_task,
-            args: vec![d1, d2],
-            join: JoinStyle::Summa(SummaStyle::JustJoin(mut_inc_join))
-        })
+        TaskResult::Fork(vec![d1, d2], None)
     }
 }
 
