@@ -12,11 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//!
+//! # ForkJoin
 //! A work stealing fork-join parallelism library.
+//!
+//! [![Build Status](https://api.travis-ci.org/faern/forkjoin.svg?branch=master)](https://travis-ci.org/faern/forkjoin)
 //!
 //! Inspired by the blog post [Data Parallelism in Rust](http://smallcultfollowing.com/babysteps/blog/2013/06/11/data-parallelism-in-rust/)
 //! and implemented as part of a master's thesis.
+//!
+//! Library documentation hosted [here](https://faern.github.io/rust-docs/forkjoin/forkjoin/)
 //!
 //! This library has been developed to accommodate the needs of three types of
 //! algorithms that all fit very well for fork-join parallelism.
@@ -32,31 +36,33 @@
 //!
 //! ## Example of summa style
 //!
-//!     use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+//! ```rust
+//! use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 //!
-//!     fn fib_30_with_4_threads() {
-//!         let forkpool = ForkPool::with_threads(4);
-//!         let fibpool = forkpool.init_algorithm(Algorithm {
-//!             fun: fib_task,
-//!             style: AlgoStyle::Summa(SummaStyle::NoArg(fib_join)),
-//!         });
+//! fn fib_30_with_4_threads() {
+//!     let forkpool = ForkPool::with_threads(4);
+//!     let fibpool = forkpool.init_algorithm(Algorithm {
+//!         fun: fib_task,
+//!         style: AlgoStyle::Summa(SummaStyle::NoArg(fib_join)),
+//!     });
 //!
-//!         let job = fibpool.schedule(30);
-//!         let result: usize = job.recv().unwrap();
-//!         assert_eq!(1346269, result);
+//!     let job = fibpool.schedule(30);
+//!     let result: usize = job.recv().unwrap();
+//!     assert_eq!(1346269, result);
+//! }
+//!
+//! fn fib_task(n: usize) -> TaskResult<usize, usize> {
+//!     if n < 2 {
+//!         TaskResult::Done(1)
+//!     } else {
+//!         TaskResult::Fork(vec![n-1,n-2], None)
 //!     }
+//! }
 //!
-//!     fn fib_task(n: usize) -> TaskResult<usize, usize> {
-//!         if n < 2 {
-//!             TaskResult::Done(1)
-//!         } else {
-//!             TaskResult::Fork(vec![n-1,n-2], None)
-//!         }
-//!     }
-//!
-//!     fn fib_join(values: &[usize]) -> usize {
-//!         values.iter().fold(0, |acc, &v| acc + v)
-//!     }
+//! fn fib_join(values: &[usize]) -> usize {
+//!     values.iter().fold(0, |acc, &v| acc + v)
+//! }
+//! ```
 //!
 //! # Search style
 //!
@@ -64,72 +70,74 @@
 //! argument, or start with some initial state. The algorithm produce one or multiple
 //! output values during the execution, possibly aborting anywhere in the middle.
 //! Algorithms where leafs in the problem tree represent a complete solution to the
-//! problem (Unless the leave represent a dead end that is not a solution and does
+//! problem (unless the leaf represent a dead end that is not a solution and does
 //! not spawn any subtasks), for example nqueens and sudoku solvers, have this style.
 //! Characteristics of the search style is that they can produce multiple results
 //! and can abort before all tasks in the tree have been computed.
 //!
 //! ## Example of search style
 //!
-//!     use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
+//! ```rust
+//! use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
 //!
-//!     type Queen = usize;
-//!     type Board = Vec<Queen>;
-//!     type Solutions = Vec<Board>;
+//! type Queen = usize;
+//! type Board = Vec<Queen>;
+//! type Solutions = Vec<Board>;
 //!
-//!     fn search_nqueens() {
-//!         let n: usize = 8;
-//!         let empty = vec![];
+//! fn search_nqueens() {
+//!     let n: usize = 8;
+//!     let empty = vec![];
 //!
-//!         let forkpool = ForkPool::with_threads(4);
-//!         let queenpool = forkpool.init_algorithm(Algorithm {
-//!             fun: nqueens_task,
-//!             style: AlgoStyle::Search,
-//!         });
+//!     let forkpool = ForkPool::with_threads(4);
+//!     let queenpool = forkpool.init_algorithm(Algorithm {
+//!         fun: nqueens_task,
+//!         style: AlgoStyle::Search,
+//!     });
 //!
-//!         let job = queenpool.schedule((empty, n));
+//!     let job = queenpool.schedule((empty, n));
 //!
-//!         let mut solutions: Vec<Board> = vec![];
-//!         loop {
-//!             match job.recv() {
-//!                 Err(..) => break, // Job has completed
-//!                 Ok(board) => solutions.push(board),
-//!             };
-//!         }
-//!         let num_solutions = solutions.len();
-//!         println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
+//!     let mut solutions: Vec<Board> = vec![];
+//!     loop {
+//!         match job.recv() {
+//!             Err(..) => break, // Job has completed
+//!             Ok(board) => solutions.push(board),
+//!         };
 //!     }
+//!     let num_solutions = solutions.len();
+//!     println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
+//! }
 //!
-//!     fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
-//!         if q.len() == n {
-//!             TaskResult::Done(q)
-//!         } else {
-//!             let mut fork_args: Vec<(Board, usize)> = vec![];
-//!             for i in 0..n {
-//!                 let mut q2 = q.clone();
-//!                 q2.push(i);
+//! fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
+//!     if q.len() == n {
+//!         TaskResult::Done(q)
+//!     } else {
+//!         let mut fork_args: Vec<(Board, usize)> = vec![];
+//!         for i in 0..n {
+//!             let mut q2 = q.clone();
+//!             q2.push(i);
 //!
-//!                 if ok(&q2[..]) {
-//!                     fork_args.push((q2, n));
-//!                 }
-//!             }
-//!             TaskResult::Fork(fork_args, None)
-//!         }
-//!     }
-//!
-//!     fn ok(q: &[usize]) -> bool {
-//!         for (x1, &y1) in q.iter().enumerate() {
-//!             for (x2, &y2) in q.iter().enumerate() {
-//!                 if x2 > x1 {
-//!                     let xd = x2-x1;
-//!                     if y1 == y2 || y1 == y2 + xd || (y2 >= xd && y1 == y2 - xd) {
-//!                         return false;
-//!                     }
-//!                 }
+//!             if ok(&q2[..]) {
+//!                 fork_args.push((q2, n));
 //!             }
 //!         }
-//!         true
+//!         TaskResult::Fork(fork_args, None)
 //!     }
+//! }
+//!
+//! fn ok(q: &[usize]) -> bool {
+//!     for (x1, &y1) in q.iter().enumerate() {
+//!         for (x2, &y2) in q.iter().enumerate() {
+//!             if x2 > x1 {
+//!                 let xd = x2-x1;
+//!                 if y1 == y2 || y1 == y2 + xd || (y2 >= xd && y1 == y2 - xd) {
+//!                     return false;
+//!                 }
+//!             }
+//!         }
+//!     }
+//!     true
+//! }
+//! ```
 //!
 //! # In-place mutation style
 //!
@@ -153,6 +161,13 @@
 //!
 //! A TaskFun return a `TaskResult`. It can be `TaskResult::Done(value)` if it's done
 //! calculating. It can be `TaskResult::Fork(fork)` if it needs to fork.
+//!
+//! # TODO
+//!
+//! - [ ] Make mutation style algorithms work without giving join function
+//! - [ ] Remove need to return None on fork with NoArg
+//! - [ ] Make it possible to use algorithms with different Arg & Ret on same pool.
+//! - [ ] Make ForkJoin work in stable Rust.
 
 
 #![feature(unique)]
