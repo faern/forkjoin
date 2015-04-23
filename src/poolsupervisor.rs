@@ -34,6 +34,7 @@ pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
 
 struct ThreadInfo<'thread, Arg: Send, Ret: Send + Sync> {
     channel: Sender<WorkerMsg<Arg,Ret>>,
+    #[allow(dead_code)]
     joinguard: thread::JoinGuard<'thread, ()>,
 }
 

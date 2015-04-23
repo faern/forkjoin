@@ -4,7 +4,7 @@ A work stealing fork-join parallelism library.
 [![Build Status](https://api.travis-ci.org/faern/forkjoin.svg?branch=master)](https://travis-ci.org/faern/forkjoin)
 
 Inspired by the blog post [Data Parallelism in Rust](http://smallcultfollowing.com/babysteps/blog/2013/06/11/data-parallelism-in-rust/)
-and implemented as part of a master's thesis.
+and implemented as part of a master's thesis. Repository hosted at [github.com/faern/forkjoin](https://github.com/faern/forkjoin)
 
 Library documentation hosted [here](https://faern.github.io/rust-docs/forkjoin/forkjoin/)
 
@@ -20,7 +20,12 @@ Characteristics of this style is that the algorithm does not need to mutate its
 argument and the resulting value is only available after every subtask has been
 fully computed.
 
-## Example of summa style
+In summa style algorithms the return values of each subtask is passed to a special
+join function that is executed when all subtasks have completed.
+To this join function an extra argument can be sent directly from the task if the algorithm
+has has `SummaStyle::Arg`. This can be seen in the examples here.
+
+## Example of summa style (`SummaStyle::NoArg`)
 
 ```rust
 use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
@@ -47,6 +52,43 @@ fn fib_task(n: usize) -> TaskResult<usize, usize> {
 
 fn fib_join(values: &[usize]) -> usize {
     values.iter().fold(0, |acc, &v| acc + v)
+}
+```
+
+## Example of summa style (`SummaStyle::Arg`)
+
+```rust
+use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+
+struct Tree {
+    value: usize,
+    children: Vec<Tree>,
+}
+
+fn sum_tree(t: &Tree) -> usize {
+    let forkpool = ForkPool::new();
+    let sumpool = forkpool.init_algorithm(Algorithm {
+        fun: sum_tree_task,
+        style: AlgoStyle::Summa(SummaStyle::Arg(sum_tree_join)),
+    });
+    let job = sumpool.schedule(t);
+    job.recv().unwrap()
+}
+
+fn sum_tree_task(t: &Tree) -> TaskResult<&Tree, usize> {
+    if t.children.is_empty() {
+        TaskResult::Done(t.value)
+    } else {
+        let mut fork_args: Vec<&Tree> = vec![];
+        for c in t.children.iter() {
+            fork_args.push(c);
+        }
+        TaskResult::Fork(fork_args, Some(t.value)) // Pass current nodes value to join
+    }
+}
+
+fn sum_tree_join(value: &usize, values: &[usize]) -> usize {
+    *value + values.iter().fold(0, |acc, &v| acc + v)
 }
 ```
 
@@ -139,14 +181,14 @@ Examples of this will come when they can be nicely implemented.
 
 # Tasks
 
-The small jobs that are executed and can choose to fork or to return a value is the
-TaskFun. A TaskFun can NEVER block, because that would block the kernel thread
+The small units that are executed and can choose to fork or to return a value is the
+`TaskFun`. A TaskFun can NEVER block, because that would block the kernel thread
 it's being executed on. Instead it should decide if it's done calculating or need
 to fork. This decision is taken in the return value to indicate to the user
 that a TaskFun need to return before anything can happen.
 
 A TaskFun return a `TaskResult`. It can be `TaskResult::Done(value)` if it's done
-calculating. It can be `TaskResult::Fork(fork)` if it needs to fork.
+calculating. It can be `TaskResult::Fork(args)` if it needs to fork.
 
 # TODO
 
