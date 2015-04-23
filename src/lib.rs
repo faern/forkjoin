@@ -32,12 +32,17 @@
 //!
 //! ## Example of summa style
 //!
-//!     use forkjoin::{TaskResult,Fork,ForkPool,AlgoStyle,SummaStyle};
+//!     use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 //!
 //!     fn fib_30_with_4_threads() {
 //!         let forkpool = ForkPool::with_threads(4);
-//!         let result_port = forkpool.schedule(fib_task, 30);
-//!         let result: usize = result_port.recv().unwrap();
+//!         let fibpool = forkpool.init_algorithm(Algorithm {
+//!             fun: fib_task,
+//!             style: AlgoStyle::Summa(SummaStyle::NoArg(fib_join)),
+//!         });
+//!
+//!         let job = fibpool.schedule(30);
+//!         let result: usize = job.recv().unwrap();
 //!         assert_eq!(1346269, result);
 //!     }
 //!
@@ -45,10 +50,7 @@
 //!         if n < 2 {
 //!             TaskResult::Done(1)
 //!         } else {
-//!             TaskResult::Fork(Fork{
-//!                 fun: fib_task,
-//!                 args: vec![n-1,n-2],
-//!                 join: AlgoStyle::Summa(SummaStyle::NoArg(fib_join))})
+//!             TaskResult::Fork(vec![n-1,n-2], None)
 //!         }
 //!     }
 //!
@@ -69,7 +71,7 @@
 //!
 //! ## Example of search style
 //!
-//!     use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
+//!     use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
 //!
 //!     type Queen = usize;
 //!     type Board = Vec<Queen>;
@@ -80,12 +82,17 @@
 //!         let empty = vec![];
 //!
 //!         let forkpool = ForkPool::with_threads(4);
-//!         let par_solutions_port = forkpool.schedule(nqueens_task, (empty, n));
+//!         let queenpool = forkpool.init_algorithm(Algorithm {
+//!             fun: nqueens_task,
+//!             style: AlgoStyle::Search,
+//!         });
+//!
+//!         let job = queenpool.schedule((empty, n));
 //!
 //!         let mut solutions: Vec<Board> = vec![];
 //!         loop {
-//!             match par_solutions_port.recv() {
-//!                 Err(..) => break, // Channel is closed to indicate termination
+//!             match job.recv() {
+//!                 Err(..) => break, // Job has completed
 //!                 Ok(board) => solutions.push(board),
 //!             };
 //!         }
@@ -106,11 +113,7 @@
 //!                     fork_args.push((q2, n));
 //!                 }
 //!             }
-//!             TaskResult::Fork(Fork{
-//!                 fun: nqueens_task,
-//!                 args: fork_args,
-//!                 join: AlgoStyle::Search
-//!             })
+//!             TaskResult::Fork(fork_args, None)
 //!         }
 //!     }
 //!

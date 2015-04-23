@@ -4,7 +4,7 @@
 extern crate core;
 extern crate forkjoin;
 
-use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle,SummaStyle};
+use forkjoin::{ForkPool,TaskResult,AlgoStyle,SummaStyle,Algorithm};
 
 #[test]
 fn summa_nqueens() {
@@ -14,13 +14,11 @@ fn summa_nqueens() {
     let num_solutions = solutions.len();
 
     let forkpool = ForkPool::with_threads(4);
+    let queenpool = forkpool.init_algorithm(NQUEENS);
 
-    let par_solutions_port = forkpool.schedule(nqueens_task, (empty, n));
+    let job = queenpool.schedule((empty, n));
 
-    let par_solutions = match par_solutions_port.recv() {
-        Err(e) => panic!("par_solutions could not recv ({})", e),
-        Ok(message) => message,
-    };
+    let par_solutions = job.recv().unwrap();
     let num_par_solutions = par_solutions.len();
 
     assert_eq!(num_par_solutions, num_solutions);
@@ -51,6 +49,12 @@ fn summa_nqueens() {
 }
 
 #[cfg(test)]
+const NQUEENS: Algorithm<(Board,usize), Solutions> = Algorithm {
+    fun: nqueens_task,
+    style: AlgoStyle::Summa(SummaStyle::NoArg(nqueens_join)),
+};
+
+#[cfg(test)]
 pub type Queen = usize;
 pub type Board = Vec<Queen>;
 pub type Solutions = Vec<Board>;
@@ -69,11 +73,7 @@ fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Solutions> 
                 fork_args.push((q2, n));
             }
         }
-        TaskResult::Fork(Fork {
-            fun: nqueens_task,
-            args: fork_args,
-            join: AlgoStyle::Summa(SummaStyle::NoArg(nqueens_join))
-        })
+        TaskResult::Fork(fork_args, None)
     }
 }
 

@@ -4,7 +4,7 @@
 extern crate core;
 extern crate forkjoin;
 
-use forkjoin::{ForkPool,TaskResult,Fork,AlgoStyle};
+use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
 
 #[test]
 fn search_nqueens() {
@@ -15,12 +15,13 @@ fn search_nqueens() {
     println!("sequential nqueens gave {} solutions", num_solutions);
 
     let forkpool = ForkPool::with_threads(4);
+    let queenpool = forkpool.init_algorithm(NQUEENS);
 
-    let par_solutions_port = forkpool.schedule(nqueens_task, (empty, n));
+    let job = queenpool.schedule((empty, n));
 
     let mut par_solutions: Vec<Board> = vec![];
     loop {
-        match par_solutions_port.recv() {
+        match job.recv() {
             Err(..) => break,
             Ok(message) => par_solutions.push(message),
         };
@@ -55,6 +56,12 @@ fn search_nqueens() {
 }
 
 #[cfg(test)]
+const NQUEENS: Algorithm<(Board,usize), Board> = Algorithm {
+    fun: nqueens_task,
+    style: AlgoStyle::Search,
+};
+
+#[cfg(test)]
 pub type Queen = usize;
 pub type Board = Vec<Queen>;
 pub type Solutions = Vec<Board>;
@@ -73,7 +80,7 @@ fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
                 fork_args.push((q2, n));
             }
         }
-        TaskResult::Fork(Fork{fun: nqueens_task, args: fork_args, join: AlgoStyle::Search})
+        TaskResult::Fork(fork_args, None)
     }
 }
 
