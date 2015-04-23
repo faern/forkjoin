@@ -151,6 +151,7 @@ calculating. It can be `TaskResult::Fork(fork)` if it needs to fork.
 # TODO
 
 - [ ] Make mutation style algorithms work without giving join function
+- [ ] Implement a sorting algorithm. Quicksort?
 - [ ] Remove need to return None on fork with NoArg
 - [ ] Make it possible to use algorithms with different Arg & Ret on same pool.
 - [ ] Make ForkJoin work in stable Rust.
