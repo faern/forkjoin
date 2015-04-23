@@ -1,6 +1,5 @@
 language: rust
 script:
- - cargo update
  - cargo build --verbose
  - cargo test --verbose
  - cargo doc --verbose
