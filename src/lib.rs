@@ -184,7 +184,7 @@ pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
 /// from the task by using `AlgoStyle::SummaArg`.
 pub type TaskJoinArg<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
-pub struct Task<Arg: Send, Ret: Send + Sync> {
+struct Task<Arg: Send, Ret: Send + Sync> {
     pub algo: Algorithm<Arg, Ret>,
     pub arg: Arg,
     pub join: ResultReceiver<Ret>,
@@ -249,7 +249,7 @@ impl<Arg: Send, Ret: Send + Sync> Clone for Algorithm<Arg,Ret> {
 }
 
 /// Internal struct for receiving results from multiple subtasks in parallel
-pub struct JoinBarrier<Ret: Send + Sync> {
+struct JoinBarrier<Ret: Send + Sync> {
     /// Atomic counter counting missing arguments before this join can be executed.
     pub ret_counter: AtomicUsize,
     /// Function to execute when all arguments have arrived.
@@ -264,7 +264,7 @@ pub struct JoinBarrier<Ret: Send + Sync> {
 }
 
 /// Enum describing what to do with results of `Task`s and `JoinBarrier`s.
-pub enum ResultReceiver<Ret: Send + Sync> {
+enum ResultReceiver<Ret: Send + Sync> {
     /// Algorithm has Summa style and the value should be inserted into a `JoinBarrier`
     Join(Unique<Ret>, Arc<JoinBarrier<Ret>>),
     /// Algorithm has Search style and results should be sent directly to the owner.
@@ -399,7 +399,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
         }
     }
 
-    pub fn schedule(&self, task: Task<Arg, Ret>) {
+    fn schedule(&self, task: Task<Arg, Ret>) {
         self.channel.send(SupervisorMsg::Schedule(task)).unwrap();
     }
 }
