@@ -17,6 +17,7 @@ use std::sync::mpsc::{channel,Sender,Receiver};
 use std::thread;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+// use deque::{BufferPool,Worker,Stealer,Stolen};
 
 use ::Task;
 use ::workerthread::{WorkerThread,WorkerMsg};
@@ -43,8 +44,6 @@ struct ThreadInfo<'thread, Arg: Send, Ret: Send + Sync> {
 pub struct PoolSupervisorThread<'thread, Arg: Send, Ret: Send + Sync> {
     port: Receiver<SupervisorMsg<Arg, Ret>>,
     thread_infos: Vec<ThreadInfo<'thread, Arg, Ret>>,
-    task_queue: 
-    steal_counter: Arc<AtomicUsize>,
 }
 
 impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Ret> {
@@ -58,7 +57,6 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
         let joinguard = PoolSupervisorThread {
             port: supervisor_port,
             thread_infos: thread_infos,
-            steal_counter: steal_counter,
         }.start_thread();
 
         (worker_channel, joinguard)

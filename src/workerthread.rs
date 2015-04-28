@@ -71,7 +71,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             other_stealers: vec![],
             rng: weak_rng(),
             steal_counter: steal_counter,
-            threadcount: 0,
+            threadcount: 1,
         }
     }
 
@@ -98,7 +98,16 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 
     fn main_loop(mut self) {
         loop {
-            match self.supervisor_port.recv() {
+            let message = match self.supervisor_port.try_recv() {
+                Ok(msg) => Ok(msg),
+                Err(_) => {
+                    self.steal_counter.fetch_add(1, Ordering::SeqCst);
+                    let recv = self.supervisor_port.recv();
+                    self.steal_counter.fetch_sub(1, Ordering::SeqCst);
+                    recv
+                },
+            };
+            match message {
                 Err(_) => break, // PoolSupervisor has been dropped, lets quit.
                 Ok(msg) => {
                     match msg {
@@ -107,12 +116,12 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                     }
                     loop {
                         self.process_queue();
-
                         self.steal_counter.fetch_add(1, Ordering::SeqCst);
-                        let steal_result = self.steal();
-                        self.steal_counter.fetch_sub(1, Ordering::SeqCst);
-                        match steal_result {
-                            Some(task) => self.execute_task(task),
+                        match self.steal() {
+                            Some(task) => {
+                                self.steal_counter.fetch_sub(1, Ordering::SeqCst);
+                                self.execute_task(task);
+                            },
                             None => break, // Give up for now
                         }
                     }
@@ -149,7 +158,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         if self.other_stealers.len() == 0 {
             None // No one to steal from
         } else {
-            let mut backoff_sleep: u32 = 0;
+            let mut backoff_sleep: u32 = BACKOFF_INC_US;
             for try in 0.. {
                 if try % STEAL_TRIES_BETWEEN_SYNC == 0 {
                     if self.threadcount == self.steal_counter.load(Ordering::SeqCst) {

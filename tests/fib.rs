@@ -35,6 +35,17 @@ fn many_fib_15() {
     }
 }
 
+#[test]
+fn fast_after_slow() {
+    let forkpool = ForkPool::with_threads(4);
+    let fibpool = forkpool.init_algorithm(FIB);
+
+    let long = fibpool.schedule(35);
+    let short = fibpool.schedule(1);
+    println!("{}", short.recv().unwrap());
+    assert!(long.try_recv().is_ok());
+}
+
 #[cfg(test)]
 fn fib_task(n: usize) -> TaskResult<usize, usize> {
     if n < 10 {
