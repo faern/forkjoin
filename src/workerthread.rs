@@ -14,10 +14,12 @@
 
 
 use std::sync::atomic::{AtomicUsize,Ordering};
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::ptr::{Unique,write};
 use std::sync::mpsc::{Receiver,Sender};
 use std::thread;
+use libc::funcs::posix88::unistd::usleep;
+use std::cmp::min;
 
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
@@ -25,7 +27,10 @@ use rand::{Rng,XorShiftRng,weak_rng};
 use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
 use ::poolsupervisor::SupervisorMsg;
 
-static STEAL_TRIES: usize = 5;
+static STEAL_TRIES_BETWEEN_SYNC: u32 = 50;
+static STEAL_TRIES_UNTIL_BACKOFF: u32 = 25;
+static BACKOFF_INC_US: u32 = 5;
+static BACKOFF_MAX_US: u32 = 250;
 
 /// Messages from the `PoolSupervisor` to `WorkerThread`s
 pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
@@ -44,12 +49,15 @@ pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     stealer: Stealer<Task<Arg, Ret>>,
     other_stealers: Vec<Stealer<Task<Arg, Ret>>>,
     rng: XorShiftRng,
+    steal_counter: Arc<AtomicUsize>,
+    threadcount: usize,
 }
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn new(id: usize,
             port: Receiver<WorkerMsg<Arg,Ret>>,
-            channel: Sender<SupervisorMsg<Arg,Ret>>) -> WorkerThread<Arg,Ret> {
+            channel: Sender<SupervisorMsg<Arg,Ret>>,
+            steal_counter: Arc<AtomicUsize>) -> WorkerThread<Arg,Ret> {
         let pool = BufferPool::new();
         let (worker, stealer) = pool.deque();
 
@@ -62,6 +70,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             stealer: stealer,
             other_stealers: vec![],
             rng: weak_rng(),
+            steal_counter: steal_counter,
+            threadcount: 0,
         }
     }
 
@@ -73,6 +83,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn add_other_stealer(&mut self, stealer: Stealer<Task<Arg,Ret>>) {
         assert!(!self.started);
         self.other_stealers.push(stealer);
+        self.threadcount += 1;
     }
 
     pub fn spawn(mut self) -> thread::JoinGuard<'a, ()> {
@@ -96,7 +107,11 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                     }
                     loop {
                         self.process_queue();
-                        match self.steal() {
+
+                        self.steal_counter.fetch_add(1, Ordering::SeqCst);
+                        let steal_result = self.steal();
+                        self.steal_counter.fetch_sub(1, Ordering::SeqCst);
+                        match steal_result {
                             Some(task) => self.execute_task(task),
                             None => break, // Give up for now
                         }
@@ -132,12 +147,21 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 
     fn steal(&mut self) -> Option<Task<Arg,Ret>> {
         if self.other_stealers.len() == 0 {
-            None
+            None // No one to steal from
         } else {
-            for try in 0..STEAL_TRIES {
+            let mut backoff_sleep: u32 = 0;
+            for try in 0.. {
+                if try % STEAL_TRIES_BETWEEN_SYNC == 0 {
+                    if self.threadcount == self.steal_counter.load(Ordering::SeqCst) {
+                        break;
+                    }
+                }
                 match self.try_steal() {
                     Some(task) => return Some(task),
-                    None => if try > 0 { thread::sleep_ms(1); } else { thread::yield_now(); },
+                    None => if try > STEAL_TRIES_UNTIL_BACKOFF {
+                        unsafe { usleep(backoff_sleep); }
+                        backoff_sleep = min(backoff_sleep + BACKOFF_INC_US, BACKOFF_MAX_US);
+                    },
                 }
             }
             None

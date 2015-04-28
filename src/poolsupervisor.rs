@@ -15,6 +15,8 @@
 
 use std::sync::mpsc::{channel,Sender,Receiver};
 use std::thread;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 use ::Task;
 use ::workerthread::{WorkerThread,WorkerMsg};
@@ -41,31 +43,37 @@ struct ThreadInfo<'thread, Arg: Send, Ret: Send + Sync> {
 pub struct PoolSupervisorThread<'thread, Arg: Send, Ret: Send + Sync> {
     port: Receiver<SupervisorMsg<Arg, Ret>>,
     thread_infos: Vec<ThreadInfo<'thread, Arg, Ret>>,
+    task_queue: 
+    steal_counter: Arc<AtomicUsize>,
 }
 
 impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Ret> {
     pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread::JoinGuard<'t, ()>) {
         assert!(nthreads > 0);
 
+        let steal_counter = Arc::new(AtomicUsize::new(0));
         let (worker_channel, supervisor_port) = channel();
-        let thread_infos = PoolSupervisorThread::spawn_workers(nthreads, worker_channel.clone());
+        let thread_infos = PoolSupervisorThread::spawn_workers(nthreads, worker_channel.clone(), steal_counter.clone());
 
         let joinguard = PoolSupervisorThread {
             port: supervisor_port,
             thread_infos: thread_infos,
+            steal_counter: steal_counter,
         }.start_thread();
 
         (worker_channel, joinguard)
     }
 
-    fn spawn_workers(nthreads: usize, worker_channel: Sender<SupervisorMsg<Arg,Ret>>) -> Vec<ThreadInfo<'t, Arg, Ret>> {
+    fn spawn_workers(nthreads: usize,
+            worker_channel: Sender<SupervisorMsg<Arg,Ret>>,
+            steal_counter: Arc<AtomicUsize>) -> Vec<ThreadInfo<'t, Arg, Ret>> {
         let mut threads = Vec::with_capacity(nthreads);
         let mut thread_channels = Vec::with_capacity(nthreads);
         let mut thread_stealers = Vec::with_capacity(nthreads);
 
         for id in 0..nthreads {
             let (supervisor_channel, worker_port) = channel();
-            let thread: WorkerThread<Arg,Ret> = WorkerThread::new(id, worker_port, worker_channel.clone());
+            let thread: WorkerThread<Arg,Ret> = WorkerThread::new(id, worker_port, worker_channel.clone(), steal_counter.clone());
             let stealer = thread.get_stealer();
 
             threads.push(thread);

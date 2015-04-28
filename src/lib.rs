@@ -216,11 +216,13 @@
 
 #![feature(unique)]
 #![feature(scoped)]
+#![feature(libc)]
 
 
 extern crate deque;
 extern crate rand;
 extern crate num_cpus;
+extern crate libc;
 
 use std::ptr::Unique;
 use std::sync::atomic::AtomicUsize;
