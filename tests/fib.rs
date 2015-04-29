@@ -44,7 +44,7 @@ fn fast_after_slow() {
     let long = fibpool.schedule(35);
     let short = fibpool.schedule(1);
     short.recv().unwrap();
-    assert!(long.try_recv().is_ok());
+    assert!(long.try_recv().is_err());
 }
 
 #[cfg(test)]

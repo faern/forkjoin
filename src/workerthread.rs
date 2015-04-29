@@ -30,9 +30,7 @@ static STEAL_TRIES_UNTIL_BACKOFF: u32 = 30;
 static BACKOFF_INC_US: u32 = 10;
 
 /// Messages from the `PoolSupervisor` to `WorkerThread`s
-pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
-    /// A new `Task` to be scheduled for execution by the `WorkerThread`
-    Schedule(Task<Arg,Ret>),
+pub enum WorkerMsg {
     /// Tell the `WorkerThread` to simply try to steal from the other `WorkerThread`s
     Steal,
 }
@@ -40,7 +38,7 @@ pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
 pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     id: usize,
     started: bool,
-    supervisor_port: Receiver<WorkerMsg<Arg, Ret>>,
+    supervisor_port: Receiver<WorkerMsg>,
     supervisor_channel: Sender<SupervisorMsg<Arg, Ret>>,
     deque: Worker<Task<Arg, Ret>>,
     stealer: Stealer<Task<Arg, Ret>>,
@@ -52,8 +50,9 @@ pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn new(id: usize,
-            port: Receiver<WorkerMsg<Arg,Ret>>,
+            port: Receiver<WorkerMsg>,
             channel: Sender<SupervisorMsg<Arg,Ret>>,
+            supervisor_queue: Stealer<Task<Arg, Ret>>,
             sleepers: Arc<AtomicUsize>) -> WorkerThread<Arg,Ret> {
         let pool = BufferPool::new();
         let (worker, stealer) = pool.deque();
@@ -65,10 +64,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             supervisor_channel: channel,
             deque: worker,
             stealer: stealer,
-            other_stealers: vec![],
+            other_stealers: vec![supervisor_queue],
             rng: weak_rng(),
             sleepers: sleepers,
-            threadcount: 1,
+            threadcount: 1, // Myself
         }
     }
 
@@ -99,7 +98,6 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                 Err(_) => break, // PoolSupervisor has been dropped, lets quit.
                 Ok(msg) => {
                     match msg {
-                        WorkerMsg::Schedule(task) => self.execute_task(task),
                         WorkerMsg::Steal => (), // Do nothing, it will come to steal further down
                     }
                     loop {
