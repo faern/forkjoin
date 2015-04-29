@@ -19,7 +19,6 @@ use std::ptr::{Unique,write};
 use std::sync::mpsc::{Receiver,Sender};
 use std::thread;
 use libc::funcs::posix88::unistd::usleep;
-use std::cmp::min;
 
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
@@ -27,10 +26,8 @@ use rand::{Rng,XorShiftRng,weak_rng};
 use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
 use ::poolsupervisor::SupervisorMsg;
 
-static STEAL_TRIES_BETWEEN_SYNC: u32 = 50;
-static STEAL_TRIES_UNTIL_BACKOFF: u32 = 25;
-static BACKOFF_INC_US: u32 = 5;
-static BACKOFF_MAX_US: u32 = 250;
+static STEAL_TRIES_UNTIL_BACKOFF: u32 = 30;
+static BACKOFF_INC_US: u32 = 10;
 
 /// Messages from the `PoolSupervisor` to `WorkerThread`s
 pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
@@ -49,7 +46,7 @@ pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     stealer: Stealer<Task<Arg, Ret>>,
     other_stealers: Vec<Stealer<Task<Arg, Ret>>>,
     rng: XorShiftRng,
-    steal_counter: Arc<AtomicUsize>,
+    sleepers: Arc<AtomicUsize>,
     threadcount: usize,
 }
 
@@ -57,7 +54,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn new(id: usize,
             port: Receiver<WorkerMsg<Arg,Ret>>,
             channel: Sender<SupervisorMsg<Arg,Ret>>,
-            steal_counter: Arc<AtomicUsize>) -> WorkerThread<Arg,Ret> {
+            sleepers: Arc<AtomicUsize>) -> WorkerThread<Arg,Ret> {
         let pool = BufferPool::new();
         let (worker, stealer) = pool.deque();
 
@@ -70,7 +67,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             stealer: stealer,
             other_stealers: vec![],
             rng: weak_rng(),
-            steal_counter: steal_counter,
+            sleepers: sleepers,
             threadcount: 1,
         }
     }
@@ -98,16 +95,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 
     fn main_loop(mut self) {
         loop {
-            let message = match self.supervisor_port.try_recv() {
-                Ok(msg) => Ok(msg),
-                Err(_) => {
-                    self.steal_counter.fetch_add(1, Ordering::SeqCst);
-                    let recv = self.supervisor_port.recv();
-                    self.steal_counter.fetch_sub(1, Ordering::SeqCst);
-                    recv
-                },
-            };
-            match message {
+            match self.supervisor_port.recv() {
                 Err(_) => break, // PoolSupervisor has been dropped, lets quit.
                 Ok(msg) => {
                     match msg {
@@ -116,12 +104,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                     }
                     loop {
                         self.process_queue();
-                        self.steal_counter.fetch_add(1, Ordering::SeqCst);
                         match self.steal() {
-                            Some(task) => {
-                                self.steal_counter.fetch_sub(1, Ordering::SeqCst);
-                                self.execute_task(task);
-                            },
+                            Some(task) => self.execute_task(task),
                             None => break, // Give up for now
                         }
                     }
@@ -160,16 +144,20 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         } else {
             let mut backoff_sleep: u32 = BACKOFF_INC_US;
             for try in 0.. {
-                if try % STEAL_TRIES_BETWEEN_SYNC == 0 {
-                    if self.threadcount == self.steal_counter.load(Ordering::SeqCst) {
-                        break;
-                    }
-                }
                 match self.try_steal() {
                     Some(task) => return Some(task),
                     None => if try > STEAL_TRIES_UNTIL_BACKOFF {
+                        let sleepers = self.sleepers.fetch_add(1, Ordering::SeqCst);
+                        //println!("worker {} sleeping for {} ({},{})", self.id, backoff_sleep, sleepers, self.threadcount);
                         unsafe { usleep(backoff_sleep); }
-                        backoff_sleep = min(backoff_sleep + BACKOFF_INC_US, BACKOFF_MAX_US);
+                        backoff_sleep = backoff_sleep + BACKOFF_INC_US;
+
+                        if self.threadcount == self.sleepers.load(Ordering::SeqCst) {
+                            //println!("worker {} giving up stealing", self.id);
+                            break;
+                        } else {
+                            self.sleepers.fetch_sub(1, Ordering::SeqCst);
+                        }
                     },
                 }
             }
