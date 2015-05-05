@@ -29,16 +29,10 @@ use ::poolsupervisor::SupervisorMsg;
 static STEAL_TRIES_UNTIL_BACKOFF: u32 = 30;
 static BACKOFF_INC_US: u32 = 10;
 
-/// Messages from the `PoolSupervisor` to `WorkerThread`s
-pub enum WorkerMsg {
-    /// Tell the `WorkerThread` to simply try to steal from the other `WorkerThread`s
-    Steal,
-}
-
 pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     id: usize,
     started: bool,
-    supervisor_port: Receiver<WorkerMsg>,
+    supervisor_port: Receiver<()>,
     supervisor_channel: Sender<SupervisorMsg<Arg, Ret>>,
     deque: Worker<Task<Arg, Ret>>,
     stealer: Stealer<Task<Arg, Ret>>,
@@ -50,7 +44,7 @@ pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn new(id: usize,
-            port: Receiver<WorkerMsg>,
+            port: Receiver<()>,
             channel: Sender<SupervisorMsg<Arg,Ret>>,
             supervisor_queue: Stealer<Task<Arg, Ret>>,
             sleepers: Arc<AtomicUsize>) -> WorkerThread<Arg,Ret> {
@@ -96,10 +90,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         loop {
             match self.supervisor_port.recv() {
                 Err(_) => break, // PoolSupervisor has been dropped, lets quit.
-                Ok(msg) => {
-                    match msg {
-                        WorkerMsg::Steal => (), // Do nothing, it will come to steal further down
-                    }
+                Ok(_) => { // Supervisor instruct to start working
                     loop {
                         self.process_queue();
                         match self.steal() {

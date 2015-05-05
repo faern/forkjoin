@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicUsize,Ordering};
 use deque::{BufferPool,Worker,Stealer};
 
 use ::Task;
-use ::workerthread::{WorkerThread,WorkerMsg};
+use ::workerthread::{WorkerThread};
 
 /// Messages from `ForkPool` and `WorkerThread` to the `PoolSupervisor`.
 pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
@@ -37,7 +37,7 @@ pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
 
 /// Internal handle to a WorkerThread
 struct ThreadInfo<'thread> {
-    channel: Sender<WorkerMsg>,
+    channel: Sender<()>,
     #[allow(dead_code)] // Not used, only held for the join on drop effect.
     joinguard: thread::JoinGuard<'thread, ()>,
 }
@@ -160,7 +160,7 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
         self.idle = 0;
         self.sleepers.store(0, Ordering::SeqCst);
         for id in 0..self.thread_infos.len() {
-            self.thread_infos[id].channel.send(WorkerMsg::Steal).unwrap();
+            self.thread_infos[id].channel.send(()).unwrap();
         }
     }
 }
