@@ -35,6 +35,7 @@ pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
     Shutdown,
 }
 
+/// Internal handle to a WorkerThread
 struct ThreadInfo<'thread> {
     channel: Sender<WorkerMsg>,
     #[allow(dead_code)] // Not used, only held for the join on drop effect.

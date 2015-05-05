@@ -91,7 +91,7 @@ fn partition(d: &mut[usize]) -> usize {
 }
 
 #[cfg(test)]
-fn pick_pivot(d: &mut[usize]) -> usize {
+fn pick_pivot(d: &[usize]) -> usize {
     let len = d.len();
     if len < 3 {
         0
@@ -104,6 +104,6 @@ fn pick_pivot(d: &mut[usize]) -> usize {
                 return *i;
             }
         }
-        panic!("pick_pivot has a bug");
+        unreachable!();
     }
 }
