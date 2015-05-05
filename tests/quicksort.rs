@@ -72,7 +72,9 @@ fn quicksort_seq(d: &mut [usize]) {
 #[cfg(test)]
 fn partition(d: &mut[usize]) -> usize {
     let last = d.len()-1;
-    let pv = d[last];
+    let pi = pick_pivot(d);
+    let pv = d[pi];
+    d.swap(pi, last); // Put pivot last
     let mut store = 0;
     for i in 0..last {
         if d[i] <= pv {
@@ -85,5 +87,23 @@ fn partition(d: &mut[usize]) -> usize {
         store
     } else {
         last
+    }
+}
+
+#[cfg(test)]
+fn pick_pivot(d: &mut[usize]) -> usize {
+    let len = d.len();
+    if len < 3 {
+        0
+    } else {
+        let is = [0, len/2, len-1];
+        let mut vs = [d[0], d[len/2], d[len-1]];
+        vs.sort();
+        for i in is.iter() {
+            if d[*i] == vs[1] {
+                return *i;
+            }
+        }
+        panic!("pick_pivot has a bug");
     }
 }

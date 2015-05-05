@@ -216,11 +216,13 @@
 
 #![feature(unique)]
 #![feature(scoped)]
+#![feature(libc)]
 
 
 extern crate deque;
 extern crate rand;
 extern crate num_cpus;
+extern crate libc;
 
 use std::ptr::Unique;
 use std::sync::atomic::AtomicUsize;
@@ -247,7 +249,7 @@ pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
 pub type TaskJoinArg<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
 /// Internal representation of a task.
-struct Task<Arg: Send, Ret: Send + Sync> {
+pub struct Task<Arg: Send, Ret: Send + Sync> {
     pub algo: Algorithm<Arg, Ret>,
     pub arg: Arg,
     pub join: ResultReceiver<Ret>,
@@ -322,7 +324,7 @@ impl<Arg: Send, Ret: Send + Sync> Clone for Algorithm<Arg,Ret> {
 }
 
 /// Internal struct for receiving results from multiple subtasks in parallel
-struct JoinBarrier<Ret: Send + Sync> {
+pub struct JoinBarrier<Ret: Send + Sync> {
     /// Atomic counter counting missing arguments before this join can be executed.
     pub ret_counter: AtomicUsize,
     /// Function to execute when all arguments have arrived.
@@ -337,7 +339,7 @@ struct JoinBarrier<Ret: Send + Sync> {
 }
 
 /// Enum describing what to do with results of `Task`s and `JoinBarrier`s.
-enum ResultReceiver<Ret: Send + Sync> {
+pub enum ResultReceiver<Ret: Send + Sync> {
     /// Algorithm has Summa style and the value should be inserted into a `JoinBarrier`
     Join(Unique<Ret>, Arc<JoinBarrier<Ret>>),
     /// Algorithm has Search style and results should be sent directly to the owner.

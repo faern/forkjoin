@@ -31,8 +31,20 @@ fn many_fib_15() {
     }
     for job in jobs {
         let result: usize = job.recv().unwrap();
+        //println!("fib({})={}", n, result);
         assert_eq!(987, result);
     }
+}
+
+#[test]
+fn fast_after_slow() {
+    let forkpool = ForkPool::with_threads(4);
+    let fibpool = forkpool.init_algorithm(FIB);
+
+    let long = fibpool.schedule(35);
+    let short = fibpool.schedule(1);
+    short.recv().unwrap();
+    assert!(long.try_recv().is_err());
 }
 
 #[cfg(test)]

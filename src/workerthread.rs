@@ -14,10 +14,11 @@
 
 
 use std::sync::atomic::{AtomicUsize,Ordering};
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::ptr::{Unique,write};
 use std::sync::mpsc::{Receiver,Sender};
 use std::thread;
+use libc::funcs::posix88::unistd::usleep;
 
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
@@ -25,12 +26,11 @@ use rand::{Rng,XorShiftRng,weak_rng};
 use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
 use ::poolsupervisor::SupervisorMsg;
 
-static STEAL_TRIES: usize = 5;
+static STEAL_TRIES_UNTIL_BACKOFF: u32 = 30;
+static BACKOFF_INC_US: u32 = 10;
 
 /// Messages from the `PoolSupervisor` to `WorkerThread`s
-pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
-    /// A new `Task` to be scheduled for execution by the `WorkerThread`
-    Schedule(Task<Arg,Ret>),
+pub enum WorkerMsg {
     /// Tell the `WorkerThread` to simply try to steal from the other `WorkerThread`s
     Steal,
 }
@@ -38,18 +38,22 @@ pub enum WorkerMsg<Arg: Send, Ret: Send + Sync> {
 pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     id: usize,
     started: bool,
-    supervisor_port: Receiver<WorkerMsg<Arg, Ret>>,
+    supervisor_port: Receiver<WorkerMsg>,
     supervisor_channel: Sender<SupervisorMsg<Arg, Ret>>,
     deque: Worker<Task<Arg, Ret>>,
     stealer: Stealer<Task<Arg, Ret>>,
     other_stealers: Vec<Stealer<Task<Arg, Ret>>>,
     rng: XorShiftRng,
+    sleepers: Arc<AtomicUsize>,
+    threadcount: usize,
 }
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn new(id: usize,
-            port: Receiver<WorkerMsg<Arg,Ret>>,
-            channel: Sender<SupervisorMsg<Arg,Ret>>) -> WorkerThread<Arg,Ret> {
+            port: Receiver<WorkerMsg>,
+            channel: Sender<SupervisorMsg<Arg,Ret>>,
+            supervisor_queue: Stealer<Task<Arg, Ret>>,
+            sleepers: Arc<AtomicUsize>) -> WorkerThread<Arg,Ret> {
         let pool = BufferPool::new();
         let (worker, stealer) = pool.deque();
 
@@ -60,8 +64,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             supervisor_channel: channel,
             deque: worker,
             stealer: stealer,
-            other_stealers: vec![],
+            other_stealers: vec![supervisor_queue],
             rng: weak_rng(),
+            sleepers: sleepers,
+            threadcount: 1, // Myself
         }
     }
 
@@ -73,6 +79,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     pub fn add_other_stealer(&mut self, stealer: Stealer<Task<Arg,Ret>>) {
         assert!(!self.started);
         self.other_stealers.push(stealer);
+        self.threadcount += 1;
     }
 
     pub fn spawn(mut self) -> thread::JoinGuard<'a, ()> {
@@ -91,7 +98,6 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                 Err(_) => break, // PoolSupervisor has been dropped, lets quit.
                 Ok(msg) => {
                     match msg {
-                        WorkerMsg::Schedule(task) => self.execute_task(task),
                         WorkerMsg::Steal => (), // Do nothing, it will come to steal further down
                     }
                     loop {
@@ -132,12 +138,26 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 
     fn steal(&mut self) -> Option<Task<Arg,Ret>> {
         if self.other_stealers.len() == 0 {
-            None
+            None // No one to steal from
         } else {
-            for try in 0..STEAL_TRIES {
+            let mut backoff_sleep: u32 = BACKOFF_INC_US;
+            for try in 0.. {
                 match self.try_steal() {
                     Some(task) => return Some(task),
-                    None => if try > 0 { thread::sleep_ms(1); } else { thread::yield_now(); },
+                    None => if try > STEAL_TRIES_UNTIL_BACKOFF {
+                        self.sleepers.fetch_add(1, Ordering::SeqCst); // Check number here and set special state if last worker
+                        unsafe { usleep(backoff_sleep); }
+                        backoff_sleep = backoff_sleep + BACKOFF_INC_US;
+
+                        if self.threadcount == self.sleepers.load(Ordering::SeqCst) {
+                            break; // Give up
+                        } else {
+                            if self.threadcount == self.sleepers.fetch_sub(1, Ordering::SeqCst) {
+                                self.sleepers.fetch_add(1, Ordering::SeqCst);
+                                break; // Also give up
+                            }
+                        }
+                    },
                 }
             }
             None
