@@ -137,9 +137,7 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
                             match self.queue.pop() {
                                 Some(task) => {
                                     self.queue.push(task);
-                                    self.idle = 0;
-                                    self.sleepers.store(0, Ordering::SeqCst);
-                                    self.schedule();
+                                    self.msg_workers();
                                 },
                                 None => (),
                             }
@@ -148,9 +146,7 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
                     SupervisorMsg::Schedule(task) => {
                         self.queue.push(task);
                         if self.idle == self.thread_infos.len() {
-                            self.idle = 0;
-                            self.sleepers.store(0, Ordering::SeqCst);
-                            self.schedule();
+                            self.msg_workers();
                         }
                     },
                     SupervisorMsg::Shutdown => break,
@@ -159,7 +155,9 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
         }
     }
 
-    fn schedule(&self) {
+    fn msg_workers(&mut self) {
+        self.idle = 0;
+        self.sleepers.store(0, Ordering::SeqCst);
         for id in 0..self.thread_infos.len() {
             self.thread_infos[id].channel.send(WorkerMsg::Steal).unwrap();
         }

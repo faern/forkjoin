@@ -145,16 +145,17 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                 match self.try_steal() {
                     Some(task) => return Some(task),
                     None => if try > STEAL_TRIES_UNTIL_BACKOFF {
-                        let sleepers = self.sleepers.fetch_add(1, Ordering::SeqCst);
-                        //println!("worker {} sleeping for {} ({},{})", self.id, backoff_sleep, sleepers, self.threadcount);
+                        self.sleepers.fetch_add(1, Ordering::SeqCst); // Check number here and set special state if last worker
                         unsafe { usleep(backoff_sleep); }
                         backoff_sleep = backoff_sleep + BACKOFF_INC_US;
 
                         if self.threadcount == self.sleepers.load(Ordering::SeqCst) {
-                            //println!("worker {} giving up stealing", self.id);
-                            break;
+                            break; // Give up
                         } else {
-                            self.sleepers.fetch_sub(1, Ordering::SeqCst);
+                            if self.threadcount == self.sleepers.fetch_sub(1, Ordering::SeqCst) {
+                                self.sleepers.fetch_add(1, Ordering::SeqCst);
+                                break; // Also give up
+                            }
                         }
                     },
                 }
