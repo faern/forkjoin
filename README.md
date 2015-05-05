@@ -197,3 +197,4 @@ calculating. It can be `TaskResult::Fork(args)` if it needs to fork.
 - [ ] Remove need to return None on fork with NoArg
 - [ ] Make it possible to use algorithms with different Arg & Ret on same pool.
 - [ ] Make ForkJoin work in stable Rust.
+- [ ] Remove mutex around channel in search style.
