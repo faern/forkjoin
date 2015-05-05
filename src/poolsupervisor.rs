@@ -15,74 +15,115 @@
 
 use std::sync::mpsc::{channel,Sender,Receiver};
 use std::thread;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize,Ordering};
+use deque::{BufferPool,Worker,Stealer};
 
-use ::{Task,WorkerMsg,SupervisorMsg};
-use ::workerthread::WorkerThread;
+use ::Task;
+use ::workerthread::{WorkerThread,WorkerMsg};
 
-use deque::Stealer;
-
-struct ThreadInfo<Arg: 'static + Send, Ret: 'static + Send + Sync> {
-    channel: Sender<WorkerMsg<Arg,Ret>>,
-    stealer: Stealer<Task<Arg,Ret>>,
+/// Messages from `ForkPool` and `WorkerThread` to the `PoolSupervisor`.
+pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
+    /// The WorkerThreads use this to tell the `PoolSupervisor` they don't have anything
+    /// to do and that stealing did not give any new `Task`s.
+    /// The argument `usize` is the id of the `WorkerThread`.
+    OutOfWork(usize),
+    /// The `ForkPool` uses this to schedule new tasks on the `PoolSupervisor`.
+    /// The `PoolSupervisor` will later schedule these to a `WorkerThread` when it see fit.
+    Schedule(Task<Arg,Ret>),
+    /// Message from the `ForkPool` to the `PoolSupervisor` to tell it to shutdown.
+    Shutdown,
 }
 
-pub struct PoolSupervisor<Arg: 'static + Send, Ret: 'static + Send + Sync> {
-    port: Receiver<SupervisorMsg<Arg,Ret>>,
-    thread_infos: Vec<ThreadInfo<Arg,Ret>>,
+struct ThreadInfo<'thread> {
+    channel: Sender<WorkerMsg>,
+    #[allow(dead_code)] // Not used, only held for the join on drop effect.
+    joinguard: thread::JoinGuard<'thread, ()>,
 }
 
-impl<Arg: 'static + Send, Ret: 'static + Send + Sync> PoolSupervisor<Arg,Ret> {
-    pub fn new(nthreads: usize) -> Sender<SupervisorMsg<Arg,Ret>> {
+pub struct PoolSupervisorThread<'thread, Arg: Send, Ret: Send + Sync> {
+    port: Receiver<SupervisorMsg<Arg, Ret>>,
+    thread_infos: Vec<ThreadInfo<'thread>>,
+    idle: usize,
+    queue: Worker<Task<Arg, Ret>>,
+    sleepers: Arc<AtomicUsize>,
+}
+
+impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Ret> {
+    pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread::JoinGuard<'t, ()>) {
         assert!(nthreads > 0);
 
-        let (worker_channel, supervisor_port) = channel();
-        let thread_infos = PoolSupervisor::spawn_workers(nthreads, worker_channel.clone());
+        let pool = BufferPool::new();
+        let (worker, stealer) = pool.deque();
 
-        PoolSupervisor {
+        let sleepers = Arc::new(AtomicUsize::new(0));
+        let (worker_channel, supervisor_port) = channel();
+        let thread_infos = PoolSupervisorThread::spawn_workers(
+            nthreads,
+            worker_channel.clone(),
+            stealer,
+            sleepers.clone(),);
+
+        let joinguard = PoolSupervisorThread {
             port: supervisor_port,
             thread_infos: thread_infos,
-        }.spawn();
+            idle: nthreads,
+            queue: worker,
+            sleepers: sleepers,
+        }.start_thread();
 
-        worker_channel
+        (worker_channel, joinguard)
     }
 
-    fn spawn_workers(nthreads: usize, worker_channel: Sender<SupervisorMsg<Arg,Ret>>) -> Vec<ThreadInfo<Arg,Ret>> {
+    fn spawn_workers(nthreads: usize,
+            worker_channel: Sender<SupervisorMsg<Arg,Ret>>,
+            supervisor_stealer: Stealer<Task<Arg, Ret>>,
+            sleepers: Arc<AtomicUsize>) -> Vec<ThreadInfo<'t>> {
         let mut threads = Vec::with_capacity(nthreads);
-        let mut thread_infos = Vec::with_capacity(nthreads);
+        let mut thread_channels = Vec::with_capacity(nthreads);
+        let mut thread_stealers = Vec::with_capacity(nthreads);
 
         for id in 0..nthreads {
             let (supervisor_channel, worker_port) = channel();
-            let thread: WorkerThread<Arg,Ret> = WorkerThread::new(id, worker_port, worker_channel.clone());
+            let thread: WorkerThread<Arg,Ret> = WorkerThread::new(
+                id,
+                worker_port,
+                worker_channel.clone(),
+                supervisor_stealer.clone(),
+                sleepers.clone());
             let stealer = thread.get_stealer();
 
             threads.push(thread);
-            thread_infos.push(ThreadInfo {
-                channel: supervisor_channel,
-                stealer: stealer,
-            });
+            thread_channels.push(supervisor_channel);
+            thread_stealers.push(stealer);
         }
 
-        for (i,thread) in threads.iter_mut().enumerate() {
-            for (j,info) in thread_infos.iter().enumerate() {
+        for (i, thread) in threads.iter_mut().enumerate() {
+            for (j, stealer) in thread_stealers.iter().enumerate() {
                 if i != j {
-                    thread.add_other_stealer(info.stealer.clone());
+                    thread.add_other_stealer(stealer.clone());
                 }
             }
         }
 
-        for thread in threads {
-            thread.spawn();
+        let mut thread_infos = Vec::with_capacity(nthreads);
+        for (thread, supervisor_channel) in threads.into_iter().zip(thread_channels) {
+            let joinguard = thread.spawn();
+            thread_infos.push(ThreadInfo {
+                channel: supervisor_channel,
+                joinguard: joinguard,
+            });
         }
 
         thread_infos
     }
 
-    fn spawn(self) {
+    fn start_thread(self) -> thread::JoinGuard<'t, ()> {
         let builder = thread::Builder::new().name(format!("fork-join supervisor"));
-        let handle = builder.spawn(move|| {
+        let joinguard = builder.scoped(move|| {
             self.main_loop();
         });
-        drop(handle.unwrap()); // Explicitly detach thread to not get compiler warning
+        joinguard.unwrap()
     }
 
     fn main_loop(mut self) {
@@ -90,18 +131,41 @@ impl<Arg: 'static + Send, Ret: 'static + Send + Sync> PoolSupervisor<Arg,Ret> {
             match self.port.recv() {
                 Err(_) => panic!("All WorkerThreads and the ForkPool closed their channels"),
                 Ok(msg) => match msg {
-                    SupervisorMsg::OutOfWork(id) => self.thread_infos[id].channel.send(WorkerMsg::Steal).unwrap(),
-                    SupervisorMsg::Schedule(task) => self.schedule(task),
+                    SupervisorMsg::OutOfWork(_) => {
+                        self.idle += 1;
+                        if self.idle == self.thread_infos.len() {
+                            match self.queue.pop() {
+                                Some(task) => {
+                                    self.queue.push(task);
+                                    self.msg_workers();
+                                },
+                                None => (),
+                            }
+                        }
+                    },
+                    SupervisorMsg::Schedule(task) => {
+                        self.queue.push(task);
+                        if self.idle == self.thread_infos.len() {
+                            self.msg_workers();
+                        }
+                    },
                     SupervisorMsg::Shutdown => break,
                 },
             }
         }
     }
 
-    fn schedule(&mut self, task: Task<Arg, Ret>) {
-        self.thread_infos[0].channel.send(WorkerMsg::Schedule(task)).unwrap();
-        for id in 1..self.thread_infos.len() {
+    fn msg_workers(&mut self) {
+        self.idle = 0;
+        self.sleepers.store(0, Ordering::SeqCst);
+        for id in 0..self.thread_infos.len() {
             self.thread_infos[id].channel.send(WorkerMsg::Steal).unwrap();
         }
     }
 }
+
+// impl<'a, Arg: Send, Ret: Send + Sync> Drop for PoolSupervisorThread<'a, Arg, Ret> {
+//     fn drop(&mut self) {
+//         println!("Dropping PoolSupervisorThread");
+//     }
+// }
