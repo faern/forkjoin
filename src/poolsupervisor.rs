@@ -135,12 +135,9 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
                     SupervisorMsg::OutOfWork(_) => {
                         self.idle += 1;
                         if self.idle == self.thread_infos.len() {
-                            match self.queue.pop() {
-                                Some(task) => {
-                                    self.queue.push(task);
-                                    self.msg_workers();
-                                },
-                                None => (),
+                            if let Some(task) = self.queue.pop() {
+                                self.queue.push(task);
+                                self.msg_workers();
                             }
                         }
                     },
