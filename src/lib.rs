@@ -406,12 +406,7 @@ impl<Ret> Drop for Job<Ret> {
     /// Don't allow a job to be dropped while it's still computing.
     /// Block and fetch all results.
     fn drop(&mut self) {
-        loop {
-            match self.port.recv() {
-                Err(_) => break,
-                Ok(_) => (),
-            }
-        }
+        while let Ok(_) = self.port.recv() {}
     }
 }
 
