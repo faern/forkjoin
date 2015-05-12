@@ -124,7 +124,10 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
         let joinguard = builder.scoped(move|| {
             self.main_loop();
         });
-        joinguard.unwrap()
+        match joinguard {
+            Ok(j) => j,
+            Err(e) => panic!("PoolSupervisor: Unable to start supervisor thread: {}", e),
+        }
     }
 
     fn main_loop(mut self) {

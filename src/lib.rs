@@ -480,6 +480,9 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
 
 impl<'a, Arg: Send, Ret: Send + Sync> Drop for ForkPool<'a, Arg, Ret> {
     fn drop(&mut self) {
-        self.channel.send(SupervisorMsg::Shutdown).unwrap();
+        match self.channel.send(SupervisorMsg::Shutdown) {
+            Ok(_) => (),
+            Err(e) => panic!("Unable to send Shutdown to supervisor: {}", e),
+        }
     }
 }

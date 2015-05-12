@@ -83,7 +83,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         let joinguard = builder.scoped(move|| {
             self.main_loop();
         });
-        joinguard.unwrap()
+        match joinguard {
+            Ok(j) => j,
+            Err(e) => panic!("WorkerThread: unable to start thread: {}", e),
+        }
     }
 
     fn main_loop(mut self) {

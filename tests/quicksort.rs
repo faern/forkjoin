@@ -41,7 +41,7 @@ fn quicksort_par(d: &mut[usize], threads: usize) {
 #[cfg(test)]
 fn quicksort_task(d: &mut [usize]) -> TaskResult<&mut [usize], ()> {
     let len = d.len();
-    if len <= 1 {
+    if len <= 1000 {
         TaskResult::Done(())
     } else {
         let pivot = partition(d);

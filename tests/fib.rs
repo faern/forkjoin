@@ -47,9 +47,12 @@ fn fast_after_slow() {
     assert!(long.try_recv().is_err());
 }
 
+/// On my laptop fib(20) takes approx 32 us. parallell fib(0) takes approx 29 us.
+/// Because of this I set serial threshold to 20 since that is where the serial execution
+/// becomes the same speed as spawning one task.
 #[cfg(test)]
 fn fib_task(n: usize) -> TaskResult<usize, usize> {
-    if n < 10 {
+    if n <= 20 {
         TaskResult::Done(fib(n))
     } else {
         TaskResult::Fork(vec![n-1,n-2], None)
