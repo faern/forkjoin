@@ -16,3 +16,6 @@ keywords = ["fork-join", "forkjoin", "work", "stealing", "parallelization"]
 deque = "0.2.*"
 rand = "0.3.*"
 num_cpus = "0.2.*"
+
+[features]
+threadstats = []
