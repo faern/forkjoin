@@ -4,10 +4,10 @@
 extern crate core;
 extern crate forkjoin;
 
-use forkjoin::{FJData,ForkPool,TaskResult,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,ForkPool,TaskResult,AlgoStyle,ReduceStyle,Algorithm};
 
 #[test]
-fn summa_nqueens() {
+fn reduce_nqueens() {
     let n: usize = 8;
     let empty = vec![];
     let solutions = nqueens(&empty[..], n);
@@ -51,7 +51,7 @@ fn summa_nqueens() {
 #[cfg(test)]
 const NQUEENS: Algorithm<(Board,usize), Solutions> = Algorithm {
     fun: nqueens_task,
-    style: AlgoStyle::Summa(SummaStyle::NoArg(nqueens_join)),
+    style: AlgoStyle::Reduce(ReduceStyle::NoArg(nqueens_join)),
 };
 
 #[cfg(test)]

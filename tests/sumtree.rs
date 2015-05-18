@@ -1,6 +1,6 @@
 extern crate forkjoin;
 
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 #[cfg(test)]
 struct Tree {
@@ -47,7 +47,7 @@ fn sum_tree_par(t: &Tree, nthreads: usize) -> usize {
     let forkpool = ForkPool::with_threads(nthreads);
     let sumpool = forkpool.init_algorithm(Algorithm {
         fun: sum_tree_task,
-        style: AlgoStyle::Summa(SummaStyle::Arg(sum_tree_join)),
+        style: AlgoStyle::Reduce(ReduceStyle::Arg(sum_tree_join)),
     });
 
     let job = sumpool.schedule(t);
