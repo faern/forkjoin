@@ -1,7 +1,7 @@
 extern crate forkjoin;
 
 use std::mem;
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 #[test]
 fn mut_inc_one_to_five() {
@@ -14,7 +14,7 @@ fn mut_inc_one_to_five() {
     let forkpool = ForkPool::with_threads(4);
     let mutpool = forkpool.init_algorithm(Algorithm {
         fun: mut_inc_task,
-        style: AlgoStyle::Summa(SummaStyle::NoArg(mut_inc_join)),
+        style: AlgoStyle::Reduce(ReduceStyle::NoArg(mut_inc_join)),
     });
 
     let job = mutpool.schedule(&mut data[..]);

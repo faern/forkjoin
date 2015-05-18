@@ -1,11 +1,11 @@
 extern crate forkjoin;
 
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 #[cfg(test)]
 const FIB: Algorithm<usize, usize> = Algorithm {
     fun: fib_task,
-    style: AlgoStyle::Summa(SummaStyle::NoArg(fib_join)),
+    style: AlgoStyle::Reduce(ReduceStyle::NoArg(fib_join)),
 };
 
 #[test]

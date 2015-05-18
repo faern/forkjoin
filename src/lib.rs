@@ -25,30 +25,30 @@
 //! This library has been developed to accommodate the needs of three types of
 //! algorithms that all fit very well for fork-join parallelism.
 //!
-//! # Summa style
+//! # Reduce style
 //!
-//! Summa style is where the algorithm receive an argument, recursively compute a value
+//! Reduce style is where the algorithm receive an argument, recursively compute a value
 //! from this argument and return one answer. Examples of this style include recursively
 //! finding the n:th Fibonacci number and summing of tree structures.
 //! Characteristics of this style is that the algorithm does not need to mutate its
 //! argument and the resulting value is only available after every subtask has been
 //! fully computed.
 //!
-//! In summa style algorithms the return values of each subtask is passed to a special
+//! In reduce style algorithms the return values of each subtask is passed to a special
 //! join function that is executed when all subtasks have completed.
 //! To this join function an extra argument can be sent directly from the task if the algorithm
-//! has has `SummaStyle::Arg`. This can be seen in the examples here.
+//! has has `ReduceStyle::Arg`. This can be seen in the examples here.
 //!
-//! ## Example of summa style (`SummaStyle::NoArg`)
+//! ## Example of reduce style (`ReduceStyle::NoArg`)
 //!
 //! ```rust
-//! use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+//! use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 //!
 //! fn fib_30_with_4_threads() {
 //!     let forkpool = ForkPool::with_threads(4);
 //!     let fibpool = forkpool.init_algorithm(Algorithm {
 //!         fun: fib_task,
-//!         style: AlgoStyle::Summa(SummaStyle::NoArg(fib_join)),
+//!         style: AlgoStyle::Reduce(ReduceStyle::NoArg(fib_join)),
 //!     });
 //!
 //!     let job = fibpool.schedule(30);
@@ -69,10 +69,10 @@
 //! }
 //! ```
 //!
-//! ## Example of summa style (`SummaStyle::Arg`)
+//! ## Example of reduce style (`ReduceStyle::Arg`)
 //!
 //! ```rust
-//! use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+//! use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 //!
 //! struct Tree {
 //!     value: usize,
@@ -83,7 +83,7 @@
 //!     let forkpool = ForkPool::new();
 //!     let sumpool = forkpool.init_algorithm(Algorithm {
 //!         fun: sum_tree_task,
-//!         style: AlgoStyle::Summa(SummaStyle::Arg(sum_tree_join)),
+//!         style: AlgoStyle::Reduce(ReduceStyle::Arg(sum_tree_join)),
 //!     });
 //!     let job = sumpool.schedule(t);
 //!     job.recv().unwrap()
@@ -247,11 +247,11 @@ use ::poolsupervisor::{PoolSupervisorThread,SupervisorMsg};
 pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg, FJData) -> TaskResult<Arg, Ret>;
 
 /// Type definition of functions joining together forked results.
-/// Only used in `AlgoStyle::Summa` algorithms with `SummaStyle::NoArg`.
+/// Only used in `AlgoStyle::Reduce` algorithms with `ReduceStyle::NoArg`.
 pub type TaskJoin<Ret> = extern "Rust" fn(&[Ret]) -> Ret;
 
 /// Similar to `TaskJoin` but takes an extra argument sent directly
-/// from the task in algorithms with `SummaStyle::Arg`.
+/// from the task in algorithms with `ReduceStyle::Arg`.
 pub type TaskJoinArg<Ret> = extern "Rust" fn(&Ret, &[Ret]) -> Ret;
 
 /// Internal representation of a task.
@@ -278,28 +278,28 @@ pub enum TaskResult<Arg, Ret> {
     ///
     /// If the algorithm style is `AlgoStyle::Search` the value in `Done` will be sent
     /// directly to the `Job` held by the submitter of the computation.
-    /// If the algorithm style is `AlgoStyle::Summa` the value in `Done` will be inserted
+    /// If the algorithm style is `AlgoStyle::Reduce` the value in `Done` will be inserted
     /// into a join barrier and later passed to the algorithms join function when all
     /// subtasks have completed execution.
     Done(Ret),
 
     /// Return this from `TaskFun` to indicate that the algorithm wants to fork.
     /// Takes a list of arguments to fork on. One subtask will be created for each argument.
-    /// The second value is only used by `SummaStyle::Arg`-algorithms to send a value directly
+    /// The second value is only used by `ReduceStyle::Arg`-algorithms to send a value directly
     /// to the `TaskJoinArg`, passing None in such algorithms will yield a panic.
     Fork(Vec<Arg>, Option<Ret>),
 }
 
 /// Enum representing the style of the executed algorithm.
 pub enum AlgoStyle<Ret> {
-    /// A `Summa` style algorithm join together the results of the individual nodes
+    /// A `Reduce` style algorithm join together the results of the individual nodes
     /// in the problem tree to finally form one result for the entire computation.
     ///
     /// Examples of this style include recursively computing fibbonacci numbers
     /// and summing binary trees.
     ///
-    /// Takes a `SummaStyle` to indicate what type of join function to use.
-    Summa(SummaStyle<Ret>),
+    /// Takes a `ReduceStyle` to indicate what type of join function to use.
+    Reduce(ReduceStyle<Ret>),
 
     /// A `Search` style algoritm return their results to the listener directly upon a
     /// `TaskResult::Done`.
@@ -312,7 +312,7 @@ impl<Ret> Copy for AlgoStyle<Ret> {}
 impl<Ret> Clone for AlgoStyle<Ret> { fn clone(&self) -> AlgoStyle<Ret> { *self } }
 
 /// Enum indicating what type of join function an `Algorithm` will use.
-pub enum SummaStyle<Ret> {
+pub enum ReduceStyle<Ret> {
     /// No extra argument is passed to the join function, only the resulting values of all subtasks
     NoArg(TaskJoin<Ret>),
 
@@ -320,8 +320,8 @@ pub enum SummaStyle<Ret> {
     /// be passed an argument sent directly from the `TaskFun`.
     Arg(TaskJoinArg<Ret>),
 }
-impl<Ret> Copy for SummaStyle<Ret> {}
-impl<Ret> Clone for SummaStyle<Ret> { fn clone(&self) -> SummaStyle<Ret> { *self } }
+impl<Ret> Copy for ReduceStyle<Ret> {}
+impl<Ret> Clone for ReduceStyle<Ret> { fn clone(&self) -> ReduceStyle<Ret> { *self } }
 
 /// The representation of a specific algorithm to use the ForkJoin library.
 ///
@@ -344,8 +344,8 @@ pub struct JoinBarrier<Ret: Send + Sync> {
     /// Atomic counter counting missing arguments before this join can be executed.
     pub ret_counter: AtomicUsize,
     /// Function to execute when all arguments have arrived.
-    pub joinfun: SummaStyle<Ret>,
-    /// Extra argument to pass to `joinfun` only used when `joinfun` is `SummaStyle::Arg`.
+    pub joinfun: ReduceStyle<Ret>,
+    /// Extra argument to pass to `joinfun` only used when `joinfun` is `ReduceStyle::Arg`.
     pub joinarg: Option<Ret>,
     /// Vector holding the results of all subtasks. Initialized unsafely so can't be used
     /// for anything until all the values have been put in place.
@@ -356,7 +356,7 @@ pub struct JoinBarrier<Ret: Send + Sync> {
 
 /// Enum describing what to do with results of `Task`s and `JoinBarrier`s.
 pub enum ResultReceiver<Ret: Send + Sync> {
-    /// Algorithm has Summa style and the value should be inserted into a `JoinBarrier`
+    /// Algorithm has Reduce style and the value should be inserted into a `JoinBarrier`
     Join(Unique<Ret>, Arc<JoinBarrier<Ret>>),
     /// Algorithm has Search style and results should be sent directly to the owner.
     Channel(Arc<Mutex<Sender<Ret>>>),
@@ -437,7 +437,7 @@ impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
     /// Schedule a new computation. Returns instantly with a handle to the computation.
     ///
     /// Return value(s) can be read from the returned `Job`.
-    /// `AlgoStyle::Summa` will only return one message on this channel.
+    /// `AlgoStyle::Reduce` will only return one message on this channel.
     ///
     /// `AlgoStyle::Search` algorithm might return arbitrary number of messages.
     pub fn schedule(&self, arg: Arg) -> Job<Ret> {

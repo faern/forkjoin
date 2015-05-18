@@ -1,7 +1,7 @@
 extern crate forkjoin;
 extern crate rand;
 
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 use rand::Rng;
 
 #[test]
@@ -32,7 +32,7 @@ fn quicksort_par(d: &mut[usize], threads: usize) {
     let forkpool = ForkPool::with_threads(threads);
     let sortpool = forkpool.init_algorithm(Algorithm {
         fun: quicksort_task,
-        style: AlgoStyle::Summa(SummaStyle::NoArg(quicksort_join)),
+        style: AlgoStyle::Reduce(ReduceStyle::NoArg(quicksort_join)),
     });
     let job = sortpool.schedule(&mut d[..]);
     job.recv().unwrap();
