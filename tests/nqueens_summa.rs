@@ -4,7 +4,7 @@
 extern crate core;
 extern crate forkjoin;
 
-use forkjoin::{ForkPool,TaskResult,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,ForkPool,TaskResult,AlgoStyle,SummaStyle,Algorithm};
 
 #[test]
 fn summa_nqueens() {
@@ -60,7 +60,7 @@ pub type Board = Vec<Queen>;
 pub type Solutions = Vec<Board>;
 
 #[cfg(test)]
-fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Solutions> {
+fn nqueens_task((q, n): (Board, usize), _: FJData) -> TaskResult<(Board,usize), Solutions> {
     if q.len() == n {
         TaskResult::Done(vec![q])
     } else {

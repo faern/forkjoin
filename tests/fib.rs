@@ -1,6 +1,6 @@
 extern crate forkjoin;
 
-use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 
 #[cfg(test)]
 const FIB: Algorithm<usize, usize> = Algorithm {
@@ -51,8 +51,8 @@ fn fast_after_slow() {
 /// Because of this I set serial threshold to 20 since that is where the serial execution
 /// becomes the same speed as spawning one task.
 #[cfg(test)]
-fn fib_task(n: usize) -> TaskResult<usize, usize> {
-    if n <= 20 {
+fn fib_task(n: usize, fj: FJData) -> TaskResult<usize, usize> {
+    if n <= 20 || fj.depth > fj.workers { // Example of cutoff to serial calculation
         TaskResult::Done(fib(n))
     } else {
         TaskResult::Fork(vec![n-1,n-2], None)

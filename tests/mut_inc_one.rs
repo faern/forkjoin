@@ -1,7 +1,7 @@
 extern crate forkjoin;
 
 use std::mem;
-use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 
 #[test]
 fn mut_inc_one_to_five() {
@@ -21,11 +21,11 @@ fn mut_inc_one_to_five() {
     job.recv().unwrap();
 
     assert_eq!(vec![2,3,4,5,6], unsafe_data);
-    unsafe { mem::forget(unsafe_data); }
+    mem::forget(unsafe_data);
 }
 
 #[cfg(test)]
-fn mut_inc_task(d: &mut [usize]) -> TaskResult<&mut [usize], ()> {
+fn mut_inc_task(d: &mut [usize], _: FJData) -> TaskResult<&mut [usize], ()> {
     let len = d.len();
     if len == 1 {
         d[0] += 1;

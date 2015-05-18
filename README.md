@@ -28,7 +28,7 @@ has has `SummaStyle::Arg`. This can be seen in the examples here.
 ## Example of summa style (`SummaStyle::NoArg`)
 
 ```rust
-use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 
 fn fib_30_with_4_threads() {
     let forkpool = ForkPool::with_threads(4);
@@ -42,7 +42,7 @@ fn fib_30_with_4_threads() {
     assert_eq!(1346269, result);
 }
 
-fn fib_task(n: usize) -> TaskResult<usize, usize> {
+fn fib_task(n: usize, _: FJData) -> TaskResult<usize, usize> {
     if n < 2 {
         TaskResult::Done(1)
     } else {
@@ -58,7 +58,7 @@ fn fib_join(values: &[usize]) -> usize {
 ## Example of summa style (`SummaStyle::Arg`)
 
 ```rust
-use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 
 struct Tree {
     value: usize,
@@ -75,9 +75,11 @@ fn sum_tree(t: &Tree) -> usize {
     job.recv().unwrap()
 }
 
-fn sum_tree_task(t: &Tree) -> TaskResult<&Tree, usize> {
+fn sum_tree_task(t: &Tree, fj: FJData) -> TaskResult<&Tree, usize> {
     if t.children.is_empty() {
         TaskResult::Done(t.value)
+    } else if fj.depth > fj.workers { // Bad example of serial threshold
+        TaskResult::Done(sum_tree_seq(t))
     } else {
         let mut fork_args: Vec<&Tree> = vec![];
         for c in t.children.iter() {
@@ -85,6 +87,10 @@ fn sum_tree_task(t: &Tree) -> TaskResult<&Tree, usize> {
         }
         TaskResult::Fork(fork_args, Some(t.value)) // Pass current nodes value to join
     }
+}
+
+fn sum_tree_seq(t: &Tree) -> usize {
+    t.value + t.children.iter().fold(0, |acc, t2| acc + sum_tree_seq(t2))
 }
 
 fn sum_tree_join(value: &usize, values: &[usize]) -> usize {
@@ -106,7 +112,7 @@ and can abort before all tasks in the tree have been computed.
 ## Example of search style
 
 ```rust
-use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
+use forkjoin::{FJData,ForkPool,TaskResult,AlgoStyle,Algorithm};
 
 type Queen = usize;
 type Board = Vec<Queen>;
@@ -135,7 +141,7 @@ fn search_nqueens() {
     println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
 }
 
-fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
+fn nqueens_task((q, n): (Board, usize), fj: FJData) -> TaskResult<(Board,usize), Board> {
     if q.len() == n {
         TaskResult::Done(q)
     } else {

@@ -23,7 +23,7 @@ use libc::funcs::posix88::unistd::usleep;
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
-use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
+use ::{Task,FJData,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
 use ::poolsupervisor::SupervisorMsg;
 
 static STEAL_TRIES_UNTIL_BACKOFF: u32 = 30;
@@ -123,12 +123,12 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     fn execute_task(&mut self, task: Task<Arg, Ret>) {
         if cfg!(feature = "threadstats") {self.stats.exec_tasks += 1;}
         let fun = task.algo.fun;
-        match (fun)(task.arg) {
+        match (fun)(task.arg, FJData{workers: self.threadcount, depth: task.depth}) {
             TaskResult::Done(ret) => {
                 self.handle_done(&task.join, ret);
             },
             TaskResult::Fork(args, joinarg) => {
-                self.handle_fork(task.algo, task.join, args, joinarg);
+                self.handle_fork(task.algo, task.join, args, joinarg, task.depth);
             }
         }
     }
@@ -183,7 +183,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         None
     }
 
-    fn handle_fork(&self, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, args: Vec<Arg>, joinarg: Option<Ret>) {
+    fn handle_fork(&self, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, args: Vec<Arg>, joinarg: Option<Ret>, depth: usize) {
         let len: usize = args.len();
         if len == 0 {
             self.handle_fork_zero(algo, join, joinarg);
@@ -194,6 +194,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                     algo: algo.clone(),
                     arg: arg,
                     join: resultreceiver,
+                    depth: depth + 1,
                 };
                 self.deque.push(forked_task);
             }
