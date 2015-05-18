@@ -23,7 +23,7 @@ use libc::funcs::posix88::unistd::usleep;
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
-use ::{Task,FJData,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
+use ::{Task,FJData,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,ReduceStyle,Algorithm};
 use ::poolsupervisor::SupervisorMsg;
 
 static STEAL_TRIES_UNTIL_BACKOFF: u32 = 30;
@@ -203,10 +203,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 
     fn handle_fork_zero(&self, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, joinarg: Option<Ret>) {
         match algo.style {
-            AlgoStyle::Summa(ref summastyle) => {
-                let joinres = match *summastyle {
-                    SummaStyle::NoArg(ref joinfun) => (joinfun)(&Vec::new()[..]),
-                    SummaStyle::Arg(ref joinfun) => {
+            AlgoStyle::Reduce(ref reducestyle) => {
+                let joinres = match *reducestyle {
+                    ReduceStyle::NoArg(ref joinfun) => (joinfun)(&Vec::new()[..]),
+                    ReduceStyle::Arg(ref joinfun) => {
                         let arg = joinarg.unwrap();
                         (joinfun)(&arg, &Vec::new()[..])
                     }
@@ -220,12 +220,12 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     fn create_result_receivers(&self, len: usize, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, joinarg: Option<Ret>) -> Vec<ResultReceiver<Ret>> {
         let mut resultreceivers = Vec::with_capacity(len);
         match algo.style {
-            AlgoStyle::Summa(summastyle) => {
+            AlgoStyle::Reduce(reducestyle) => {
                 let (vector, elem_ptrs) = create_result_vec::<Ret>(len);
 
                 let join_arc = Arc::new(JoinBarrier {
                     ret_counter: AtomicUsize::new(len),
-                    joinfun: summastyle,
+                    joinfun: reducestyle,
                     joinarg: joinarg,
                     joinfunarg: vector,
                     parent: join,
@@ -250,10 +250,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                 unsafe { write(**ptr, value); } // Writes without dropping since only null in place
                 if joinbarrier.ret_counter.fetch_sub(1, Ordering::SeqCst) == 1 {
                     let joinres = match joinbarrier.joinfun {
-                        SummaStyle::NoArg(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
-                        SummaStyle::Arg(ref joinfun) => {
+                        ReduceStyle::NoArg(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
+                        ReduceStyle::Arg(ref joinfun) => {
                             let joinarg = match joinbarrier.joinarg.as_ref() {
-                                None => panic!("Algorithm has SummaStyle::Arg, but no extra arg passed"),
+                                None => panic!("Algorithm has ReduceStyle::Arg, but no extra arg passed"),
                                 Some(arg) => arg,
                             };
                             (joinfun)(joinarg, &joinbarrier.joinfunarg)

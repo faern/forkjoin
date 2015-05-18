@@ -11,30 +11,30 @@ Library documentation hosted [here](https://faern.github.io/rust-docs/forkjoin/f
 This library has been developed to accommodate the needs of three types of
 algorithms that all fit very well for fork-join parallelism.
 
-# Summa style
+# Reduce style
 
-Summa style is where the algorithm receive an argument, recursively compute a value
+Reduce style is where the algorithm receive an argument, recursively compute a value
 from this argument and return one answer. Examples of this style include recursively
 finding the n:th Fibonacci number and summing of tree structures.
 Characteristics of this style is that the algorithm does not need to mutate its
 argument and the resulting value is only available after every subtask has been
 fully computed.
 
-In summa style algorithms the return values of each subtask is passed to a special
+In reduce style algorithms the return values of each subtask is passed to a special
 join function that is executed when all subtasks have completed.
 To this join function an extra argument can be sent directly from the task if the algorithm
-has has `SummaStyle::Arg`. This can be seen in the examples here.
+has has `ReduceStyle::Arg`. This can be seen in the examples here.
 
-## Example of summa style (`SummaStyle::NoArg`)
+## Example of reduce style (`ReduceStyle::NoArg`)
 
 ```rust
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 fn fib_30_with_4_threads() {
     let forkpool = ForkPool::with_threads(4);
     let fibpool = forkpool.init_algorithm(Algorithm {
         fun: fib_task,
-        style: AlgoStyle::Summa(SummaStyle::NoArg(fib_join)),
+        style: AlgoStyle::Reduce(ReduceStyle::NoArg(fib_join)),
     });
 
     let job = fibpool.schedule(30);
@@ -55,10 +55,10 @@ fn fib_join(values: &[usize]) -> usize {
 }
 ```
 
-## Example of summa style (`SummaStyle::Arg`)
+## Example of reduce style (`ReduceStyle::Arg`)
 
 ```rust
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 struct Tree {
     value: usize,
@@ -69,7 +69,7 @@ fn sum_tree(t: &Tree) -> usize {
     let forkpool = ForkPool::new();
     let sumpool = forkpool.init_algorithm(Algorithm {
         fun: sum_tree_task,
-        style: AlgoStyle::Summa(SummaStyle::Arg(sum_tree_join)),
+        style: AlgoStyle::Reduce(ReduceStyle::Arg(sum_tree_join)),
     });
     let job = sumpool.schedule(t);
     job.recv().unwrap()
