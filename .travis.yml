@@ -1,7 +1,8 @@
 language: rust
+rust:
+  - nightly
 script:
  - cargo build --verbose
  - cargo test --verbose
  - cargo doc --verbose
 after_success: curl https://raw.githubusercontent.com/faern/forkjoin/master/scripts/travis-doc-upload.sh | sh
-
