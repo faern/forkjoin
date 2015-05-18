@@ -42,7 +42,7 @@
 //! ## Example of summa style (`SummaStyle::NoArg`)
 //!
 //! ```rust
-//! use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+//! use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 //!
 //! fn fib_30_with_4_threads() {
 //!     let forkpool = ForkPool::with_threads(4);
@@ -56,7 +56,7 @@
 //!     assert_eq!(1346269, result);
 //! }
 //!
-//! fn fib_task(n: usize) -> TaskResult<usize, usize> {
+//! fn fib_task(n: usize, _: FJData) -> TaskResult<usize, usize> {
 //!     if n < 2 {
 //!         TaskResult::Done(1)
 //!     } else {
@@ -72,7 +72,7 @@
 //! ## Example of summa style (`SummaStyle::Arg`)
 //!
 //! ```rust
-//! use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+//! use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 //!
 //! struct Tree {
 //!     value: usize,
@@ -89,9 +89,11 @@
 //!     job.recv().unwrap()
 //! }
 //!
-//! fn sum_tree_task(t: &Tree) -> TaskResult<&Tree, usize> {
+//! fn sum_tree_task(t: &Tree, fj: FJData) -> TaskResult<&Tree, usize> {
 //!     if t.children.is_empty() {
 //!         TaskResult::Done(t.value)
+//!     } else if fj.depth > fj.workers { // Bad example of serial threshold
+//!         TaskResult::Done(sum_tree_seq(t))
 //!     } else {
 //!         let mut fork_args: Vec<&Tree> = vec![];
 //!         for c in t.children.iter() {
@@ -99,6 +101,10 @@
 //!         }
 //!         TaskResult::Fork(fork_args, Some(t.value)) // Pass current nodes value to join
 //!     }
+//! }
+//!
+//! fn sum_tree_seq(t: &Tree) -> usize {
+//!     t.value + t.children.iter().fold(0, |acc, t2| acc + sum_tree_seq(t2))
 //! }
 //!
 //! fn sum_tree_join(value: &usize, values: &[usize]) -> usize {
@@ -120,7 +126,7 @@
 //! ## Example of search style
 //!
 //! ```rust
-//! use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
+//! use forkjoin::{FJData,ForkPool,TaskResult,AlgoStyle,Algorithm};
 //!
 //! type Queen = usize;
 //! type Board = Vec<Queen>;
@@ -149,7 +155,7 @@
 //!     println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
 //! }
 //!
-//! fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
+//! fn nqueens_task((q, n): (Board, usize), fj: FJData) -> TaskResult<(Board,usize), Board> {
 //!     if q.len() == n {
 //!         TaskResult::Done(q)
 //!     } else {
@@ -238,7 +244,7 @@ use ::poolsupervisor::{PoolSupervisorThread,SupervisorMsg};
 
 /// Type definition of the main function in a task.
 /// Your task functions must have this signature
-pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg) -> TaskResult<Arg, Ret>;
+pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg, FJData) -> TaskResult<Arg, Ret>;
 
 /// Type definition of functions joining together forked results.
 /// Only used in `AlgoStyle::Summa` algorithms with `SummaStyle::NoArg`.
@@ -253,6 +259,16 @@ pub struct Task<Arg: Send, Ret: Send + Sync> {
     pub algo: Algorithm<Arg, Ret>,
     pub arg: Arg,
     pub join: ResultReceiver<Ret>,
+    pub depth: usize,
+}
+
+/// Fork-join Data. Contains data about the currently executed job.
+/// Can be used by `TaskFun` to determine whether or not to go over to serial code.
+pub struct FJData {
+    /// Number of worker threads in this `ForkPool`
+    pub workers: usize,
+    /// Depth in the fork-join tree of the current task.
+    pub depth: usize,
 }
 
 /// Return values from tasks. Represent a computed value or a fork of the algorithm.
@@ -431,6 +447,7 @@ impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
             algo: self.algo,
             arg: arg,
             join: ResultReceiver::Channel(Arc::new(Mutex::new(chan))),
+            depth: 0,
         };
         self.forkpool.schedule(task);
 
@@ -480,6 +497,9 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> ForkPool<'a, Arg, Ret> {
 
 impl<'a, Arg: Send, Ret: Send + Sync> Drop for ForkPool<'a, Arg, Ret> {
     fn drop(&mut self) {
-        self.channel.send(SupervisorMsg::Shutdown).unwrap();
+        match self.channel.send(SupervisorMsg::Shutdown) {
+            Ok(_) => (),
+            Err(e) => panic!("Unable to send Shutdown to supervisor: {}", e),
+        }
     }
 }

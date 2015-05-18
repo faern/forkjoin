@@ -23,7 +23,7 @@ use libc::funcs::posix88::unistd::usleep;
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
-use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
+use ::{Task,FJData,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,SummaStyle,Algorithm};
 use ::poolsupervisor::SupervisorMsg;
 
 static STEAL_TRIES_UNTIL_BACKOFF: u32 = 30;
@@ -40,6 +40,7 @@ pub struct WorkerThread<Arg: Send, Ret: Send + Sync> {
     rng: XorShiftRng,
     sleepers: Arc<AtomicUsize>,
     threadcount: usize,
+    stats: ThreadStats,
 }
 
 impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
@@ -62,6 +63,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             rng: weak_rng(),
             sleepers: sleepers,
             threadcount: 1, // Myself
+            stats: ThreadStats{exec_tasks: 0, steals: 0, steal_fails: 0, sleep_us: 0},
         }
     }
 
@@ -83,7 +85,10 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         let joinguard = builder.scoped(move|| {
             self.main_loop();
         });
-        joinguard.unwrap()
+        match joinguard {
+            Ok(j) => j,
+            Err(e) => panic!("WorkerThread: unable to start thread: {}", e),
+        }
     }
 
     fn main_loop(mut self) {
@@ -106,7 +111,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         }
     }
 
-    fn process_queue(&self) {
+    fn process_queue(&mut self) {
         loop {
             match self.deque.pop() {
                 Some(task) => self.execute_task(task),
@@ -115,14 +120,15 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         }
     }
 
-    fn execute_task(&self, task: Task<Arg, Ret>) {
+    fn execute_task(&mut self, task: Task<Arg, Ret>) {
+        if cfg!(feature = "threadstats") {self.stats.exec_tasks += 1;}
         let fun = task.algo.fun;
-        match (fun)(task.arg) {
+        match (fun)(task.arg, FJData{workers: self.threadcount, depth: task.depth}) {
             TaskResult::Done(ret) => {
                 self.handle_done(&task.join, ret);
             },
             TaskResult::Fork(args, joinarg) => {
-                self.handle_fork(task.algo, task.join, args, joinarg);
+                self.handle_fork(task.algo, task.join, args, joinarg, task.depth);
             }
         }
     }
@@ -137,6 +143,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                     Some(task) => return Some(task),
                     None => if try > STEAL_TRIES_UNTIL_BACKOFF {
                         self.sleepers.fetch_add(1, Ordering::SeqCst); // Check number here and set special state if last worker
+                        if cfg!(feature = "threadstats") {self.stats.sleep_us += backoff_sleep as usize;}
                         unsafe { usleep(backoff_sleep); }
                         backoff_sleep = backoff_sleep + BACKOFF_INC_US;
 
@@ -163,14 +170,20 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         let start_victim = self.rng.gen_range(0, len);
         for offset in 0..len {
             match self.other_stealers[(start_victim + offset) % len].steal() {
-                Stolen::Data(task) => return Some(task),
-                Stolen::Empty | Stolen::Abort => continue,
+                Stolen::Data(task) => {
+                    if cfg!(feature = "threadstats") {self.stats.steals += 1;}
+                    return Some(task);
+                }
+                Stolen::Empty | Stolen::Abort => {
+                    if cfg!(feature = "threadstats") {self.stats.steal_fails += 1;}
+                    continue;
+                }
             }
         }
         None
     }
 
-    fn handle_fork(&self, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, args: Vec<Arg>, joinarg: Option<Ret>) {
+    fn handle_fork(&self, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, args: Vec<Arg>, joinarg: Option<Ret>, depth: usize) {
         let len: usize = args.len();
         if len == 0 {
             self.handle_fork_zero(algo, join, joinarg);
@@ -181,6 +194,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                     algo: algo.clone(),
                     arg: arg,
                     join: resultreceiver,
+                    depth: depth + 1,
                 };
                 self.deque.push(forked_task);
             }
@@ -255,11 +269,24 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     }
 }
 
-// impl<Arg: Send, Ret: Send + Sync> Drop for WorkerThread<Arg, Ret> {
-//     fn drop(&mut self) {
-//         println!("Dropping WorkerThread");
-//     }
-// }
+#[cfg(feature = "threadstats")]
+impl<Arg: Send, Ret: Send + Sync> Drop for WorkerThread<Arg, Ret> {
+    fn drop(&mut self) {
+        println!("WorkerThread[{}] (tasks: {}, steals: {}, failed steals: {}, sleep_us: {})",
+            self.id,
+            self.stats.exec_tasks,
+            self.stats.steals,
+            self.stats.steal_fails,
+            self.stats.sleep_us);
+    }
+}
+
+struct ThreadStats {
+    pub steals: usize,
+    pub steal_fails: usize,
+    pub exec_tasks: usize,
+    pub sleep_us: usize,
+}
 
 fn create_result_vec<Ret>(n: usize) -> (Vec<Ret>, Vec<Unique<Ret>>) {
     let mut rets: Vec<Ret> = Vec::with_capacity(n);

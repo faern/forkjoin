@@ -2,7 +2,7 @@
 
 name = "forkjoin"
 description = "A work stealing fork-join parallelism library for Rust"
-version = "2.0.1"
+version = "2.1.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
 
 license = "Apache-2.0"
@@ -16,3 +16,6 @@ keywords = ["fork-join", "forkjoin", "work", "stealing", "parallelization"]
 deque = "0.2.*"
 rand = "0.3.*"
 num_cpus = "0.2.*"
+
+[features]
+threadstats = []

@@ -1,7 +1,7 @@
 extern crate forkjoin;
 extern crate rand;
 
-use forkjoin::{TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
+use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,SummaStyle,Algorithm};
 use rand::Rng;
 
 #[test]
@@ -39,9 +39,10 @@ fn quicksort_par(d: &mut[usize], threads: usize) {
 }
 
 #[cfg(test)]
-fn quicksort_task(d: &mut [usize]) -> TaskResult<&mut [usize], ()> {
+fn quicksort_task(d: &mut [usize], _: FJData) -> TaskResult<&mut [usize], ()> {
     let len = d.len();
-    if len <= 1 {
+    if len <= 1000 {
+        quicksort_seq(d);
         TaskResult::Done(())
     } else {
         let pivot = partition(d);
