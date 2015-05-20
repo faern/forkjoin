@@ -1,7 +1,7 @@
 extern crate forkjoin;
 
 use std::mem;
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
+use forkjoin::{TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 #[test]
 fn mut_inc_one_to_five() {
@@ -25,7 +25,7 @@ fn mut_inc_one_to_five() {
 }
 
 #[cfg(test)]
-fn mut_inc_task(d: &mut [usize], _: FJData) -> TaskResult<&mut [usize], ()> {
+fn mut_inc_task(d: &mut [usize], _: usize) -> TaskResult<&mut [usize], ()> {
     let len = d.len();
     if len == 1 {
         d[0] += 1;

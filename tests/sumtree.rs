@@ -1,6 +1,6 @@
 extern crate forkjoin;
 
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
+use forkjoin::{TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 #[cfg(test)]
 struct Tree {
@@ -55,13 +55,11 @@ fn sum_tree_par(t: &Tree, nthreads: usize) -> usize {
 }
 
 #[cfg(test)]
-fn sum_tree_task(t: &Tree, fj: FJData) -> TaskResult<&Tree, usize> {
+fn sum_tree_task(t: &Tree, _: usize) -> TaskResult<&Tree, usize> {
     let val = t.value;
 
     if t.children.is_empty() {
         TaskResult::Done(val)
-    } else if fj.depth > fj.workers {
-        TaskResult::Done(sum_tree_seq(t))
     } else {
         let mut fork_args: Vec<&Tree> = vec![];
         for c in t.children.iter() {
