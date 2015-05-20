@@ -2,7 +2,7 @@
 
 name = "forkjoin"
 description = "A work stealing fork-join parallelism library for Rust"
-version = "2.2.0"
+version = "2.3.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
 
 license = "Apache-2.0"
