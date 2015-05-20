@@ -42,7 +42,7 @@
 //! ## Example of reduce style (`ReduceStyle::NoArg`)
 //!
 //! ```rust
-//! use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
+//! use forkjoin::{TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 //!
 //! fn fib_30_with_4_threads() {
 //!     let forkpool = ForkPool::with_threads(4);
@@ -56,7 +56,7 @@
 //!     assert_eq!(1346269, result);
 //! }
 //!
-//! fn fib_task(n: usize, _: FJData) -> TaskResult<usize, usize> {
+//! fn fib_task(n: usize, _: usize) -> TaskResult<usize, usize> {
 //!     if n < 2 {
 //!         TaskResult::Done(1)
 //!     } else {
@@ -72,7 +72,7 @@
 //! ## Example of reduce style (`ReduceStyle::Arg`)
 //!
 //! ```rust
-//! use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
+//! use forkjoin::{TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 //!
 //! struct Tree {
 //!     value: usize,
@@ -89,11 +89,9 @@
 //!     job.recv().unwrap()
 //! }
 //!
-//! fn sum_tree_task(t: &Tree, fj: FJData) -> TaskResult<&Tree, usize> {
+//! fn sum_tree_task(t: &Tree, _: usize) -> TaskResult<&Tree, usize> {
 //!     if t.children.is_empty() {
 //!         TaskResult::Done(t.value)
-//!     } else if fj.depth > fj.workers { // Bad example of serial threshold
-//!         TaskResult::Done(sum_tree_seq(t))
 //!     } else {
 //!         let mut fork_args: Vec<&Tree> = vec![];
 //!         for c in t.children.iter() {
@@ -126,7 +124,7 @@
 //! ## Example of search style
 //!
 //! ```rust
-//! use forkjoin::{FJData,ForkPool,TaskResult,AlgoStyle,Algorithm};
+//! use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
 //!
 //! type Queen = usize;
 //! type Board = Vec<Queen>;
@@ -155,7 +153,7 @@
 //!     println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
 //! }
 //!
-//! fn nqueens_task((q, n): (Board, usize), fj: FJData) -> TaskResult<(Board,usize), Board> {
+//! fn nqueens_task((q, n): (Board, usize), _: usize) -> TaskResult<(Board,usize), Board> {
 //!     if q.len() == n {
 //!         TaskResult::Done(q)
 //!     } else {
@@ -244,7 +242,7 @@ use ::poolsupervisor::{PoolSupervisorThread,SupervisorMsg};
 
 /// Type definition of the main function in a task.
 /// Your task functions must have this signature
-pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg, FJData) -> TaskResult<Arg, Ret>;
+pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg, usize) -> TaskResult<Arg, Ret>;
 
 /// Type definition of functions joining together forked results.
 /// Only used in `AlgoStyle::Reduce` algorithms with `ReduceStyle::NoArg`.
@@ -259,16 +257,6 @@ pub struct Task<Arg: Send, Ret: Send + Sync> {
     pub algo: Algorithm<Arg, Ret>,
     pub arg: Arg,
     pub join: ResultReceiver<Ret>,
-    pub depth: usize,
-}
-
-/// Fork-join Data. Contains data about the currently executed job.
-/// Can be used by `TaskFun` to determine whether or not to go over to serial code.
-pub struct FJData {
-    /// Number of worker threads in this `ForkPool`
-    pub workers: usize,
-    /// Depth in the fork-join tree of the current task.
-    pub depth: usize,
 }
 
 /// Return values from tasks. Represent a computed value or a fork of the algorithm.
@@ -447,7 +435,6 @@ impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
             algo: self.algo,
             arg: arg,
             join: ResultReceiver::Channel(Arc::new(Mutex::new(chan))),
-            depth: 0,
         };
         self.forkpool.schedule(task);
 

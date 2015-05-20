@@ -4,7 +4,7 @@
 extern crate core;
 extern crate forkjoin;
 
-use forkjoin::{FJData,ForkPool,TaskResult,AlgoStyle,Algorithm};
+use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
 
 #[test]
 fn search_nqueens() {
@@ -67,7 +67,7 @@ pub type Board = Vec<Queen>;
 pub type Solutions = Vec<Board>;
 
 #[cfg(test)]
-fn nqueens_task((q, n): (Board, usize), _: FJData) -> TaskResult<(Board,usize), Board> {
+fn nqueens_task((q, n): (Board, usize), _: usize) -> TaskResult<(Board,usize), Board> {
     if q.len() == n {
         TaskResult::Done(q)
     } else {
