@@ -126,7 +126,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         while let Some(task) = next_task {
             if cfg!(feature = "threadstats") {self.stats.exec_tasks += 1;}
             let fun = task.algo.fun;
-            match (fun)(task.arg, self.threadcount) {
+            match (fun)(task.arg) {
                 TaskResult::Done(ret) => {
                     self.handle_done(task.join, ret);
                     next_task = None;
@@ -327,7 +327,6 @@ struct PtrIter<Ret> {
     ptr_0: *mut Ret,
     offset: isize,
 }
-
 impl<Ret> Iterator for PtrIter<Ret> {
     type Item = Unique<Ret>;
 

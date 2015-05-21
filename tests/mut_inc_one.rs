@@ -25,7 +25,7 @@ fn mut_inc_one_to_five() {
 }
 
 #[cfg(test)]
-fn mut_inc_task(d: &mut [usize], _: usize) -> TaskResult<&mut [usize], ()> {
+fn mut_inc_task(d: &mut [usize]) -> TaskResult<&mut [usize], ()> {
     let len = d.len();
     if len == 1 {
         d[0] += 1;
