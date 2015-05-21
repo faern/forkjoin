@@ -221,6 +221,7 @@
 #![feature(unique)]
 #![feature(scoped)]
 #![feature(libc)]
+#![feature(alloc)] // For Box::from_raw
 
 
 extern crate deque;
@@ -345,7 +346,7 @@ pub struct JoinBarrier<Ret: Send + Sync> {
 /// Enum describing what to do with results of `Task`s and `JoinBarrier`s.
 pub enum ResultReceiver<Ret: Send + Sync> {
     /// Algorithm has Reduce style and the value should be inserted into a `JoinBarrier`
-    Join(Unique<Ret>, Arc<JoinBarrier<Ret>>),
+    Join(Unique<Ret>, Box<JoinBarrier<Ret>>),
     /// Algorithm has Search style and results should be sent directly to the owner.
     Channel(Arc<Mutex<Sender<Ret>>>),
 }
