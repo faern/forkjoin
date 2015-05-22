@@ -113,11 +113,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     }
 
     fn process_queue(&mut self) {
-        loop {
-            match self.deque.pop() {
-                Some(task) => self.execute_task(task),
-                None => break,
-            }
+        while let Some(task) = self.deque.pop() {
+            self.execute_task(task);
         }
     }
 
