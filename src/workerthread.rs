@@ -64,7 +64,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             rng: weak_rng(),
             sleepers: sleepers,
             threadcount: 1, // Myself
-            stats: ThreadStats{exec_tasks: 0, steals: 0, steal_fails: 0, sleep_us: 0},
+            stats: ThreadStats{exec_tasks: 0, steals: 0, steal_fails: 0, sleep_us: 0, first_after: 1},
         }
     }
 
@@ -142,7 +142,12 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             let mut backoff_sleep: u32 = BACKOFF_INC_US;
             for try in 0.. {
                 match self.try_steal() {
-                    Some(task) => return Some(task),
+                    Some(task) => {
+                        if cfg!(feature = "threadstats") && self.stats.first_after == 1 {
+                            self.stats.first_after = self.stats.sleep_us;
+                        }
+                        return Some(task);
+                    }
                     None => if try > STEAL_TRIES_UNTIL_BACKOFF {
                         self.sleepers.fetch_add(1, Ordering::SeqCst); // Check number here and set special state if last worker
                         if cfg!(feature = "threadstats") {self.stats.sleep_us += backoff_sleep as usize;}
@@ -291,12 +296,13 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 #[cfg(feature = "threadstats")]
 impl<Arg: Send, Ret: Send + Sync> Drop for WorkerThread<Arg, Ret> {
     fn drop(&mut self) {
-        println!("WorkerThread[{}] (tasks: {}, steals: {}, failed steals: {}, sleep_us: {})",
+        println!("Worker[{}] (t: {}, steals: {}, failed: {}, sleep: {}, first: {})",
             self.id,
             self.stats.exec_tasks,
             self.stats.steals,
             self.stats.steal_fails,
-            self.stats.sleep_us);
+            self.stats.sleep_us,
+            self.stats.first_after);
     }
 }
 
@@ -305,6 +311,7 @@ struct ThreadStats {
     pub steal_fails: usize,
     pub exec_tasks: usize,
     pub sleep_us: usize,
+    pub first_after: usize,
 }
 
 fn create_result_vec<Ret>(n: usize) -> (Vec<Ret>, PtrIter<Ret>) {
