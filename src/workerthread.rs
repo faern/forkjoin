@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::ptr::{Unique,write};
 use std::sync::mpsc::{Receiver,Sender};
 use std::thread;
+use std::mem;
 use libc::funcs::posix88::unistd::usleep;
 
 use deque::{BufferPool,Worker,Stealer,Stolen};
@@ -63,7 +64,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             rng: weak_rng(),
             sleepers: sleepers,
             threadcount: 1, // Myself
-            stats: ThreadStats{exec_tasks: 0, steals: 0, steal_fails: 0, sleep_us: 0},
+            stats: ThreadStats{exec_tasks: 0, steals: 0, steal_fails: 0, sleep_us: 0, first_after: 1},
         }
     }
 
@@ -112,23 +113,24 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
     }
 
     fn process_queue(&mut self) {
-        loop {
-            match self.deque.pop() {
-                Some(task) => self.execute_task(task),
-                None => break,
-            }
+        while let Some(task) = self.deque.pop() {
+            self.execute_task(task);
         }
     }
 
     fn execute_task(&mut self, task: Task<Arg, Ret>) {
-        if cfg!(feature = "threadstats") {self.stats.exec_tasks += 1;}
-        let fun = task.algo.fun;
-        match (fun)(task.arg, self.threadcount) {
-            TaskResult::Done(ret) => {
-                self.handle_done(&task.join, ret);
-            },
-            TaskResult::Fork(args, joinarg) => {
-                self.handle_fork(task.algo, task.join, args, joinarg);
+        let mut next_task: Option<Task<Arg,Ret>> = Some(task);
+        while let Some(task) = next_task {
+            if cfg!(feature = "threadstats") {self.stats.exec_tasks += 1;}
+            let fun = task.algo.fun;
+            match (fun)(task.arg) {
+                TaskResult::Done(ret) => {
+                    self.handle_done(task.join, ret);
+                    next_task = None;
+                },
+                TaskResult::Fork(args, joinarg) => {
+                    next_task = self.handle_fork(task.algo, task.join, args, joinarg);
+                }
             }
         }
     }
@@ -140,7 +142,12 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             let mut backoff_sleep: u32 = BACKOFF_INC_US;
             for try in 0.. {
                 match self.try_steal() {
-                    Some(task) => return Some(task),
+                    Some(task) => {
+                        if cfg!(feature = "threadstats") && self.stats.first_after == 1 {
+                            self.stats.first_after = self.stats.sleep_us;
+                        }
+                        return Some(task);
+                    }
                     None => if try > STEAL_TRIES_UNTIL_BACKOFF {
                         self.sleepers.fetch_add(1, Ordering::SeqCst); // Check number here and set special state if last worker
                         if cfg!(feature = "threadstats") {self.stats.sleep_us += backoff_sleep as usize;}
@@ -183,19 +190,62 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         None
     }
 
-    fn handle_fork(&self, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, args: Vec<Arg>, joinarg: Option<Ret>) {
+    fn handle_fork(&self,
+        algo: Algorithm<Arg, Ret>,
+        join: ResultReceiver<Ret>,
+        args: Vec<Arg>,
+        joinarg: Option<Ret>) -> Option<Task<Arg,Ret>>
+    {
         let len: usize = args.len();
         if len == 0 {
             self.handle_fork_zero(algo, join, joinarg);
+            None
         } else {
-            let resultreceivers = self.create_result_receivers(len, algo, join, joinarg);
-            for (arg,resultreceiver) in args.into_iter().zip(resultreceivers.into_iter()) {
-                let forked_task = Task {
-                    algo: algo.clone(),
-                    arg: arg,
-                    join: resultreceiver,
-                };
-                self.deque.push(forked_task);
+            match algo.style {
+                AlgoStyle::Reduce(reducestyle) => {
+                    let (vector, mut ptr_iter) = create_result_vec::<Ret>(len);
+
+                    let mut sub_join = Box::new(JoinBarrier {
+                            ret_counter: AtomicUsize::new(len),
+                            joinfun: reducestyle,
+                            joinarg: joinarg,
+                            joinfunarg: vector,
+                            parent: join,
+                    });
+
+                    let mut args_iter = args.into_iter();
+                    let first_task = Task {
+                        algo: algo.clone(),
+                        arg: args_iter.next().unwrap(),
+                        join: ResultReceiver::Join(ptr_iter.next().unwrap(), unsafe{Box::from_raw(&mut *sub_join)}),
+                    };
+                    loop {
+                        match (args_iter.next(), ptr_iter.next()) {
+                            (Some(arg), Some(ptr)) => {
+                                let forked_task = Task {
+                                    algo: algo.clone(),
+                                    arg: arg,
+                                    join: ResultReceiver::Join(ptr, unsafe{Box::from_raw(&mut *sub_join)}),
+                                };
+                                self.deque.push(forked_task);
+                            },
+                            _ => break,
+                        }
+                    }
+                    mem::forget(sub_join); // Don't drop here, last task will take care of that in handle_done
+                    Some(first_task)
+                },
+                AlgoStyle::Search => {
+                    for arg in args.into_iter() {
+                        let forked_task = Task {
+                            algo: algo.clone(),
+                            arg: arg,
+                            join: join.clone(),
+                        };
+                        self.deque.push(forked_task);
+                    }
+                    None
+                }
             }
         }
     }
@@ -210,43 +260,16 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                         (joinfun)(&arg, &Vec::new()[..])
                     }
                 };
-                self.handle_done(&join, joinres);
+                self.handle_done(join, joinres);
             },
             _ => (),
         }
     }
 
-    fn create_result_receivers(&self, len: usize, algo: Algorithm<Arg, Ret>, join: ResultReceiver<Ret>, joinarg: Option<Ret>) -> Vec<ResultReceiver<Ret>> {
-        let mut resultreceivers = Vec::with_capacity(len);
-        match algo.style {
-            AlgoStyle::Reduce(reducestyle) => {
-                let (vector, elem_ptrs) = create_result_vec::<Ret>(len);
-
-                let join_arc = Arc::new(JoinBarrier {
-                    ret_counter: AtomicUsize::new(len),
-                    joinfun: reducestyle,
-                    joinarg: joinarg,
-                    joinfunarg: vector,
-                    parent: join,
-                });
-
-                for ptr in elem_ptrs.into_iter() {
-                    resultreceivers.push(ResultReceiver::Join(ptr, join_arc.clone()));
-                }
-            },
-            AlgoStyle::Search => {
-                for _ in 0..len {
-                    resultreceivers.push(join.clone());
-                }
-            }
-        }
-        resultreceivers
-    }
-
-    fn handle_done(&self, join: &ResultReceiver<Ret>, value: Ret) {
-        match *join {
-            ResultReceiver::Join(ref ptr, ref joinbarrier) => {
-                unsafe { write(**ptr, value); } // Writes without dropping since only null in place
+    fn handle_done(&self, join: ResultReceiver<Ret>, value: Ret) {
+        match join {
+            ResultReceiver::Join(ptr, joinbarrier) => {
+                unsafe { write(*ptr, value); } // Writes without dropping since only null in place
                 if joinbarrier.ret_counter.fetch_sub(1, Ordering::SeqCst) == 1 {
                     let joinres = match joinbarrier.joinfun {
                         ReduceStyle::NoArg(ref joinfun) => (joinfun)(&joinbarrier.joinfunarg),
@@ -258,10 +281,12 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
                             (joinfun)(joinarg, &joinbarrier.joinfunarg)
                         },
                     };
-                    self.handle_done(&joinbarrier.parent, joinres);
+                    self.handle_done(joinbarrier.parent, joinres);
+                } else {
+                    mem::forget(joinbarrier) // Don't drop if we are not last task
                 }
             }
-            ResultReceiver::Channel(ref channel) => {
+            ResultReceiver::Channel(channel) => {
                 channel.lock().unwrap().send(value).unwrap();
             }
         }
@@ -271,12 +296,13 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
 #[cfg(feature = "threadstats")]
 impl<Arg: Send, Ret: Send + Sync> Drop for WorkerThread<Arg, Ret> {
     fn drop(&mut self) {
-        println!("WorkerThread[{}] (tasks: {}, steals: {}, failed steals: {}, sleep_us: {})",
+        println!("Worker[{}] (t: {}, steals: {}, failed: {}, sleep: {}, first: {})",
             self.id,
             self.stats.exec_tasks,
             self.stats.steals,
             self.stats.steal_fails,
-            self.stats.sleep_us);
+            self.stats.sleep_us,
+            self.stats.first_after);
     }
 }
 
@@ -285,17 +311,32 @@ struct ThreadStats {
     pub steal_fails: usize,
     pub exec_tasks: usize,
     pub sleep_us: usize,
+    pub first_after: usize,
 }
 
-fn create_result_vec<Ret>(n: usize) -> (Vec<Ret>, Vec<Unique<Ret>>) {
+fn create_result_vec<Ret>(n: usize) -> (Vec<Ret>, PtrIter<Ret>) {
     let mut rets: Vec<Ret> = Vec::with_capacity(n);
-    let mut rets_ptr: Vec<Unique<Ret>> = Vec::with_capacity(n);
     unsafe {
         rets.set_len(n); // Force it to expand. Values in this will be invalid
         let ptr_0: *mut Ret = rets.get_unchecked_mut(0);
-        for i in 0..(n as isize) {
-            rets_ptr.push(Unique::new(ptr_0.offset(i)));
-        }
+        let ptr_iter = PtrIter {
+            ptr_0: ptr_0,
+            offset: 0,
+        };
+        (rets, ptr_iter)
     }
-    (rets, rets_ptr)
+}
+
+struct PtrIter<Ret> {
+    ptr_0: *mut Ret,
+    offset: isize,
+}
+impl<Ret> Iterator for PtrIter<Ret> {
+    type Item = Unique<Ret>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ptr = unsafe { Unique::new(self.ptr_0.offset(self.offset)) };
+        self.offset += 1;
+        Some(ptr)
+    }
 }

@@ -55,7 +55,7 @@ fn sum_tree_par(t: &Tree, nthreads: usize) -> usize {
 }
 
 #[cfg(test)]
-fn sum_tree_task(t: &Tree, _: usize) -> TaskResult<&Tree, usize> {
+fn sum_tree_task(t: &Tree) -> TaskResult<&Tree, usize> {
     let val = t.value;
 
     if t.children.is_empty() {

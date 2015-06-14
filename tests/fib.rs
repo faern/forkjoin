@@ -51,7 +51,7 @@ fn fast_after_slow() {
 /// Because of this I set serial threshold to 20 since that is where the serial execution
 /// becomes the same speed as spawning one task.
 #[cfg(test)]
-fn fib_task(n: usize, _: usize) -> TaskResult<usize, usize> {
+fn fib_task(n: usize) -> TaskResult<usize, usize> {
     if n <= 20 { // Example of cutoff to serial calculation
         TaskResult::Done(fib(n))
     } else {

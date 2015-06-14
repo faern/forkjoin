@@ -60,7 +60,7 @@ pub type Board = Vec<Queen>;
 pub type Solutions = Vec<Board>;
 
 #[cfg(test)]
-fn nqueens_task((q, n): (Board, usize), _: usize) -> TaskResult<(Board,usize), Solutions> {
+fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Solutions> {
     if q.len() == n {
         TaskResult::Done(vec![q])
     } else {
