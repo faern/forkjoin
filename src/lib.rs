@@ -37,7 +37,7 @@
 //! In reduce style algorithms the return values of each subtask is passed to a special
 //! join function that is executed when all subtasks have completed.
 //! To this join function an extra argument can be sent directly from the task if the algorithm
-//! has has `ReduceStyle::Arg`. This can be seen in the examples here.
+//! has `ReduceStyle::Arg`. This can be seen in the examples here.
 //!
 //! ## Example of reduce style (`ReduceStyle::NoArg`)
 //!
