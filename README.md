@@ -23,12 +23,12 @@ fully computed.
 In reduce style algorithms the return values of each subtask is passed to a special
 join function that is executed when all subtasks have completed.
 To this join function an extra argument can be sent directly from the task if the algorithm
-has has `ReduceStyle::Arg`. This can be seen in the examples here.
+has `ReduceStyle::Arg`. This can be seen in the examples here.
 
 ## Example of reduce style (`ReduceStyle::NoArg`)
 
 ```rust
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
+use forkjoin::{TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 fn fib_30_with_4_threads() {
     let forkpool = ForkPool::with_threads(4);
@@ -42,7 +42,7 @@ fn fib_30_with_4_threads() {
     assert_eq!(1346269, result);
 }
 
-fn fib_task(n: usize, _: FJData) -> TaskResult<usize, usize> {
+fn fib_task(n: usize) -> TaskResult<usize, usize> {
     if n < 2 {
         TaskResult::Done(1)
     } else {
@@ -58,7 +58,7 @@ fn fib_join(values: &[usize]) -> usize {
 ## Example of reduce style (`ReduceStyle::Arg`)
 
 ```rust
-use forkjoin::{FJData,TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
+use forkjoin::{TaskResult,ForkPool,AlgoStyle,ReduceStyle,Algorithm};
 
 struct Tree {
     value: usize,
@@ -75,11 +75,9 @@ fn sum_tree(t: &Tree) -> usize {
     job.recv().unwrap()
 }
 
-fn sum_tree_task(t: &Tree, fj: FJData) -> TaskResult<&Tree, usize> {
+fn sum_tree_task(t: &Tree) -> TaskResult<&Tree, usize> {
     if t.children.is_empty() {
         TaskResult::Done(t.value)
-    } else if fj.depth > fj.workers { // Bad example of serial threshold
-        TaskResult::Done(sum_tree_seq(t))
     } else {
         let mut fork_args: Vec<&Tree> = vec![];
         for c in t.children.iter() {
@@ -112,7 +110,7 @@ and can abort before all tasks in the tree have been computed.
 ## Example of search style
 
 ```rust
-use forkjoin::{FJData,ForkPool,TaskResult,AlgoStyle,Algorithm};
+use forkjoin::{ForkPool,TaskResult,AlgoStyle,Algorithm};
 
 type Queen = usize;
 type Board = Vec<Queen>;
@@ -141,7 +139,7 @@ fn search_nqueens() {
     println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
 }
 
-fn nqueens_task((q, n): (Board, usize), fj: FJData) -> TaskResult<(Board,usize), Board> {
+fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
     if q.len() == n {
         TaskResult::Done(q)
     } else {
