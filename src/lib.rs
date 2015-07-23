@@ -221,7 +221,7 @@
 #![feature(unique)]
 #![feature(scoped)]
 #![feature(libc)]
-#![feature(alloc)] // For Box::from_raw
+#![feature(box_raw)]
 
 
 extern crate deque;
