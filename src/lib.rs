@@ -37,7 +37,7 @@
 //! In reduce style algorithms the return values of each subtask is passed to a special
 //! join function that is executed when all subtasks have completed.
 //! To this join function an extra argument can be sent directly from the task if the algorithm
-//! has has `ReduceStyle::Arg`. This can be seen in the examples here.
+//! has `ReduceStyle::Arg`. This can be seen in the examples here.
 //!
 //! ## Example of reduce style (`ReduceStyle::NoArg`)
 //!
@@ -56,7 +56,7 @@
 //!     assert_eq!(1346269, result);
 //! }
 //!
-//! fn fib_task(n: usize, _: usize) -> TaskResult<usize, usize> {
+//! fn fib_task(n: usize) -> TaskResult<usize, usize> {
 //!     if n < 2 {
 //!         TaskResult::Done(1)
 //!     } else {
@@ -89,7 +89,7 @@
 //!     job.recv().unwrap()
 //! }
 //!
-//! fn sum_tree_task(t: &Tree, _: usize) -> TaskResult<&Tree, usize> {
+//! fn sum_tree_task(t: &Tree) -> TaskResult<&Tree, usize> {
 //!     if t.children.is_empty() {
 //!         TaskResult::Done(t.value)
 //!     } else {
@@ -153,7 +153,7 @@
 //!     println!("Found {} solutions to nqueens({}x{})", num_solutions, n, n);
 //! }
 //!
-//! fn nqueens_task((q, n): (Board, usize), _: usize) -> TaskResult<(Board,usize), Board> {
+//! fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Board> {
 //!     if q.len() == n {
 //!         TaskResult::Done(q)
 //!     } else {
@@ -221,6 +221,7 @@
 #![feature(unique)]
 #![feature(scoped)]
 #![feature(libc)]
+#![feature(alloc)] // For Box::from_raw
 
 
 extern crate deque;
@@ -242,7 +243,7 @@ use ::poolsupervisor::{PoolSupervisorThread,SupervisorMsg};
 
 /// Type definition of the main function in a task.
 /// Your task functions must have this signature
-pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg, usize) -> TaskResult<Arg, Ret>;
+pub type TaskFun<Arg, Ret> = extern "Rust" fn(Arg) -> TaskResult<Arg, Ret>;
 
 /// Type definition of functions joining together forked results.
 /// Only used in `AlgoStyle::Reduce` algorithms with `ReduceStyle::NoArg`.
@@ -345,7 +346,7 @@ pub struct JoinBarrier<Ret: Send + Sync> {
 /// Enum describing what to do with results of `Task`s and `JoinBarrier`s.
 pub enum ResultReceiver<Ret: Send + Sync> {
     /// Algorithm has Reduce style and the value should be inserted into a `JoinBarrier`
-    Join(Unique<Ret>, Arc<JoinBarrier<Ret>>),
+    Join(Unique<Ret>, Box<JoinBarrier<Ret>>),
     /// Algorithm has Search style and results should be sent directly to the owner.
     Channel(Arc<Mutex<Sender<Ret>>>),
 }
