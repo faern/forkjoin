@@ -1,5 +1,5 @@
 #![feature(core)]
-#![feature(collections)]
+#![feature(vec_push_all)]
 
 extern crate core;
 extern crate forkjoin;
