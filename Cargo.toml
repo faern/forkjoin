@@ -13,9 +13,12 @@ readme = "README.md"
 keywords = ["fork-join", "forkjoin", "work", "stealing", "parallelization"]
 
 [dependencies]
-deque = "0.2.*"
+# deque = "0.2.*"
 rand = "0.3.*"
 num_cpus = "0.2.*"
+
+[dependencies.deque]
+git = "https://github.com/kinghajj/deque"
 
 [features]
 threadstats = []
