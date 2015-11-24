@@ -227,6 +227,7 @@
 extern crate deque;
 extern crate rand;
 extern crate num_cpus;
+extern crate thread_scoped;
 extern crate libc;
 
 use std::ptr::Unique;
@@ -447,7 +448,7 @@ impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
 /// Represents a pool of threads implementing a work stealing algorithm.
 pub struct ForkPool<'a, Arg: Send, Ret: Send + Sync> {
     #[allow(dead_code)]
-    joinguard: thread::JoinGuard<'a, ()>,
+    joinguard: thread_scoped::JoinGuard<'a, ()>,
     channel: Sender<SupervisorMsg<Arg, Ret>>,
 }
 

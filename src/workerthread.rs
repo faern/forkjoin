@@ -20,6 +20,7 @@ use std::sync::mpsc::{Receiver,Sender};
 use std::thread;
 use std::mem;
 use libc::funcs::posix88::unistd::usleep;
+use thread_scoped;
 
 use deque::{BufferPool,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
@@ -79,16 +80,13 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         self.threadcount += 1;
     }
 
-    pub fn spawn(mut self) -> thread::JoinGuard<'a, ()> {
+    pub fn spawn(mut self) -> thread_scoped::JoinGuard<'a, ()> {
         assert!(!self.started);
         self.started = true;
-        let builder = thread::Builder::new().name(format!("fork-join worker {}", self.id+1));
-        let joinguard = builder.scoped(move|| {
-            self.main_loop();
-        });
-        match joinguard {
-            Ok(j) => j,
-            Err(e) => panic!("WorkerThread: unable to start thread: {}", e),
+        unsafe {
+            thread_scoped::scoped(move|| {
+                self.main_loop();
+            })
         }
     }
 
