@@ -19,7 +19,7 @@ use std::ptr::{Unique,write};
 use std::sync::mpsc::{Receiver,Sender};
 use std::thread;
 use std::mem;
-use libc::funcs::posix88::unistd::usleep;
+use libc::usleep;
 use thread_scoped;
 
 use deque::{BufferPool,Worker,Stealer,Stolen};
