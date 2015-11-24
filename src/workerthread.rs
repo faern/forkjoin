@@ -17,7 +17,6 @@ use std::sync::atomic::{AtomicUsize,Ordering};
 use std::sync::Arc;
 use std::ptr::{Unique,write};
 use std::sync::mpsc::{Receiver,Sender};
-use std::thread;
 use std::mem;
 use libc::usleep;
 use thread_scoped;

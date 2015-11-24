@@ -14,7 +14,6 @@
 
 
 use std::sync::mpsc::{channel,Sender,Receiver};
-use std::thread;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize,Ordering};
 use thread_scoped;

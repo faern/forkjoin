@@ -219,9 +219,6 @@
 
 
 #![feature(unique)]
-#![feature(scoped)]
-#![feature(libc)]
-#![feature(box_raw)]
 
 
 extern crate deque;
@@ -235,7 +232,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc,Mutex};
 use std::sync::mpsc::{channel,Sender,Receiver,TryRecvError};
 use std::fmt;
-use std::thread;
 
 mod workerthread;
 mod poolsupervisor;
