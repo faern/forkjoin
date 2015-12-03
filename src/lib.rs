@@ -219,14 +219,12 @@
 
 
 #![feature(unique)]
-#![feature(scoped)]
-#![feature(libc)]
-#![feature(box_raw)]
 
 
 extern crate deque;
 extern crate rand;
 extern crate num_cpus;
+extern crate thread_scoped;
 extern crate libc;
 
 use std::ptr::Unique;
@@ -234,7 +232,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc,Mutex};
 use std::sync::mpsc::{channel,Sender,Receiver,TryRecvError};
 use std::fmt;
-use std::thread;
 
 mod workerthread;
 mod poolsupervisor;
@@ -447,7 +444,7 @@ impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
 /// Represents a pool of threads implementing a work stealing algorithm.
 pub struct ForkPool<'a, Arg: Send, Ret: Send + Sync> {
     #[allow(dead_code)]
-    joinguard: thread::JoinGuard<'a, ()>,
+    joinguard: thread_scoped::JoinGuard<'a, ()>,
     channel: Sender<SupervisorMsg<Arg, Ret>>,
 }
 
