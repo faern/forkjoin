@@ -5,7 +5,7 @@ description = "A work stealing fork-join parallelism library for Rust"
 version = "2.3.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
 
-license = "Apache-2.0"
+license = "MIT/Apache-2.0"
 homepage = "https://github.com/faern/forkjoin"
 repository = "https://github.com/faern/forkjoin.git"
 documentation = "https://faern.github.io/rust-docs/forkjoin/forkjoin/"
