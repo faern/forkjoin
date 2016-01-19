@@ -7,9 +7,6 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-#![feature(core)]
-#![feature(vec_push_all)]
-
 extern crate core;
 extern crate forkjoin;
 
@@ -106,7 +103,7 @@ fn nqueens(q: &[Queen], n: usize) -> Solutions {
 
         if ok(new_q) {
             let more_solutions = nqueens(new_q, n);
-            solutions.push_all(&more_solutions[..]);
+            solutions.extend_from_slice(&more_solutions[..]);
         }
     }
     solutions
