@@ -21,7 +21,7 @@ use std::mem;
 use libc::usleep;
 use thread_scoped;
 
-use deque::{BufferPool,Worker,Stealer,Stolen};
+use deque::{self,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
 use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,ReduceStyle,Algorithm};
@@ -50,8 +50,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             channel: Sender<SupervisorMsg<Arg,Ret>>,
             supervisor_queue: Stealer<Task<Arg, Ret>>,
             sleepers: Arc<AtomicUsize>) -> WorkerThread<Arg,Ret> {
-        let pool = BufferPool::new();
-        let (worker, stealer) = pool.deque();
+
+        let (worker, stealer) = deque::new();
 
         WorkerThread {
             id: id,

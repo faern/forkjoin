@@ -17,7 +17,7 @@ use std::sync::mpsc::{channel,Sender,Receiver};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize,Ordering};
 use thread_scoped;
-use deque::{BufferPool,Worker,Stealer};
+use deque::{self,Worker,Stealer};
 
 use ::Task;
 use ::workerthread::{WorkerThread};
@@ -54,8 +54,7 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
     pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread_scoped::JoinGuard<'t, ()>) {
         assert!(nthreads > 0);
 
-        let pool = BufferPool::new();
-        let (worker, stealer) = pool.deque();
+        let (worker, stealer) = deque::new();
 
         let sleepers = Arc::new(AtomicUsize::new(0));
         let (worker_channel, supervisor_port) = channel();
