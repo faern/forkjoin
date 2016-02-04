@@ -15,6 +15,10 @@ use std::sync::mpsc::{Receiver,Sender};
 use std::mem;
 use libc::usleep;
 use thread_scoped;
+#[cfg(feature = "linux-affinity")]
+use scheduler;
+#[cfg(feature = "linux-affinity")]
+use num_cpus;
 
 use deque::{self,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
@@ -79,6 +83,7 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         self.started = true;
         unsafe {
             thread_scoped::scoped(move|| {
+                set_self_affinity(self.id);
                 self.main_loop();
             })
         }
@@ -284,6 +289,15 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         }
     }
 }
+
+#[cfg(feature = "linux-affinity")]
+fn set_self_affinity(workerthread: usize) {
+    let cpu = workerthread % num_cpus::get();
+    let cpuset = scheduler::CpuSet::single(cpu);
+    scheduler::set_self_affinity(cpuset).expect("Unable to set cpu affinity");
+}
+#[cfg(not(feature = "linux-affinity"))]
+fn set_self_affinity(_: usize) {}
 
 #[cfg(feature = "threadstats")]
 impl<Arg: Send, Ret: Send + Sync> Drop for WorkerThread<Arg, Ret> {

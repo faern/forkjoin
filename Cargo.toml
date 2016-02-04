@@ -14,13 +14,16 @@ keywords = ["fork-join", "forkjoin", "work", "stealing", "parallelization"]
 
 [dependencies]
 deque = "0.3"
-rand = "0.3.*"
-num_cpus = "0.2.*"
-thread-scoped = "1.*"
-libc = "*"
+rand = "0.3"
+num_cpus = "0.2"
+thread-scoped = "1.0"
+libc = "0.2"
+
+scheduler = { version = "0.1", optional = true }
 
 #[dependencies.deque]
 #git = "https://github.com/kinghajj/deque"
 
 [features]
 threadstats = []
+linux-affinity = ["scheduler"]

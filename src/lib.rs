@@ -235,6 +235,8 @@ extern crate rand;
 extern crate num_cpus;
 extern crate thread_scoped;
 extern crate libc;
+#[cfg(feature = "linux-affinity")]
+extern crate scheduler;
 
 use std::ptr::Unique;
 use std::sync::atomic::AtomicUsize;
