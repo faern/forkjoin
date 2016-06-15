@@ -1,16 +1,11 @@
-// Copyright 2015 Linus Färnstrand
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright (c) 2015-2016 Linus Färnstrand.
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+// at your option. All files in the project carrying such
+// notice may not be copied, modified, or distributed except
+// according to those terms.
 
 //! # ForkJoin
 //! A work stealing fork-join parallelism library.
@@ -216,17 +211,29 @@
 //! - [ ] Make it possible to use algorithms with different Arg & Ret on same pool.
 //! - [ ] Make ForkJoin work in stable Rust.
 //! - [ ] Remove mutex around channel in search style.
+//!
+//! # License
+//!
+//! Licensed under either of
+//!  * Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+//!  * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+//! at your option.
+//!
+//! ## Contribution
+//!
+//! Unless you explicitly state otherwise, any contribution intentionally submitted
+//! for inclusion in the work by you shall be dual licensed as above, without any
+//! additional terms or conditions.
+//!
 
 
 #![feature(unique)]
-#![feature(scoped)]
-#![feature(libc)]
-#![feature(alloc)] // For Box::from_raw
 
 
 extern crate deque;
 extern crate rand;
 extern crate num_cpus;
+extern crate thread_scoped;
 extern crate libc;
 
 use std::ptr::Unique;
@@ -234,7 +241,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc,Mutex};
 use std::sync::mpsc::{channel,Sender,Receiver,TryRecvError};
 use std::fmt;
-use std::thread;
 
 mod workerthread;
 mod poolsupervisor;
@@ -447,7 +453,7 @@ impl<'a, Arg: Send, Ret: Send + Sync> AlgoOnPool<'a, Arg, Ret> {
 /// Represents a pool of threads implementing a work stealing algorithm.
 pub struct ForkPool<'a, Arg: Send, Ret: Send + Sync> {
     #[allow(dead_code)]
-    joinguard: thread::JoinGuard<'a, ()>,
+    joinguard: thread_scoped::JoinGuard<'a, ()>,
     channel: Sender<SupervisorMsg<Arg, Ret>>,
 }
 

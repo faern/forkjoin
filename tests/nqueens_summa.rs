@@ -1,5 +1,11 @@
-#![feature(core)]
-#![feature(collections)]
+// Copyright (c) 2015-2016 Linus Färnstrand.
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+// at your option. All files in the project carrying such
+// notice may not be copied, modified, or distributed except
+// according to those terms.
 
 extern crate core;
 extern crate forkjoin;
@@ -81,7 +87,7 @@ fn nqueens_task((q, n): (Board, usize)) -> TaskResult<(Board,usize), Solutions> 
 fn nqueens_join(values: &[Solutions]) -> Solutions {
     let mut all_solutions: Solutions = vec![];
     for solutions in values {
-        all_solutions.push_all(&solutions[..]);
+        all_solutions.extend_from_slice(&solutions[..]);
     }
     all_solutions
 }
@@ -101,7 +107,7 @@ fn nqueens(q: &[Queen], n: usize) -> Solutions {
 
         if ok(new_q) {
             let more_solutions = nqueens(new_q, n);
-            solutions.push_all(&more_solutions[..]);
+            solutions.extend_from_slice(&more_solutions[..]);
         }
     }
     solutions

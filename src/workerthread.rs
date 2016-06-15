@@ -1,27 +1,22 @@
-// Copyright 2015 Linus Färnstrand
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright (c) 2015-2016 Linus Färnstrand.
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+// at your option. All files in the project carrying such
+// notice may not be copied, modified, or distributed except
+// according to those terms.
 
 
 use std::sync::atomic::{AtomicUsize,Ordering};
 use std::sync::Arc;
 use std::ptr::{Unique,write};
 use std::sync::mpsc::{Receiver,Sender};
-use std::thread;
 use std::mem;
-use libc::funcs::posix88::unistd::usleep;
+use libc::usleep;
+use thread_scoped;
 
-use deque::{BufferPool,Worker,Stealer,Stolen};
+use deque::{self,Worker,Stealer,Stolen};
 use rand::{Rng,XorShiftRng,weak_rng};
 
 use ::{Task,JoinBarrier,TaskResult,ResultReceiver,AlgoStyle,ReduceStyle,Algorithm};
@@ -50,8 +45,8 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
             channel: Sender<SupervisorMsg<Arg,Ret>>,
             supervisor_queue: Stealer<Task<Arg, Ret>>,
             sleepers: Arc<AtomicUsize>) -> WorkerThread<Arg,Ret> {
-        let pool = BufferPool::new();
-        let (worker, stealer) = pool.deque();
+
+        let (worker, stealer) = deque::new();
 
         WorkerThread {
             id: id,
@@ -79,16 +74,13 @@ impl<'a, Arg: Send + 'a, Ret: Send + Sync + 'a> WorkerThread<Arg,Ret> {
         self.threadcount += 1;
     }
 
-    pub fn spawn(mut self) -> thread::JoinGuard<'a, ()> {
+    pub fn spawn(mut self) -> thread_scoped::JoinGuard<'a, ()> {
         assert!(!self.started);
         self.started = true;
-        let builder = thread::Builder::new().name(format!("fork-join worker {}", self.id+1));
-        let joinguard = builder.scoped(move|| {
-            self.main_loop();
-        });
-        match joinguard {
-            Ok(j) => j,
-            Err(e) => panic!("WorkerThread: unable to start thread: {}", e),
+        unsafe {
+            thread_scoped::scoped(move|| {
+                self.main_loop();
+            })
         }
     }
 

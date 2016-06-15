@@ -1,23 +1,18 @@
-// Copyright 2015 Linus Färnstrand
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright (c) 2015-2016 Linus Färnstrand.
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+// at your option. All files in the project carrying such
+// notice may not be copied, modified, or distributed except
+// according to those terms.
 
 
 use std::sync::mpsc::{channel,Sender,Receiver};
-use std::thread;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize,Ordering};
-use deque::{BufferPool,Worker,Stealer};
+use thread_scoped;
+use deque::{self,Worker,Stealer};
 
 use ::Task;
 use ::workerthread::{WorkerThread};
@@ -39,7 +34,7 @@ pub enum SupervisorMsg<Arg: Send, Ret: Send + Sync> {
 struct ThreadInfo<'thread> {
     channel: Sender<()>,
     #[allow(dead_code)] // Not used, only held for the join on drop effect.
-    joinguard: thread::JoinGuard<'thread, ()>,
+    joinguard: thread_scoped::JoinGuard<'thread, ()>,
 }
 
 pub struct PoolSupervisorThread<'thread, Arg: Send, Ret: Send + Sync> {
@@ -51,11 +46,10 @@ pub struct PoolSupervisorThread<'thread, Arg: Send, Ret: Send + Sync> {
 }
 
 impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Ret> {
-    pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread::JoinGuard<'t, ()>) {
+    pub fn spawn(nthreads: usize) -> (Sender<SupervisorMsg<Arg,Ret>>, thread_scoped::JoinGuard<'t, ()>) {
         assert!(nthreads > 0);
 
-        let pool = BufferPool::new();
-        let (worker, stealer) = pool.deque();
+        let (worker, stealer) = deque::new();
 
         let sleepers = Arc::new(AtomicUsize::new(0));
         let (worker_channel, supervisor_port) = channel();
@@ -119,14 +113,11 @@ impl<'t, Arg: Send + 't, Ret: Send + Sync + 't> PoolSupervisorThread<'t, Arg, Re
         thread_infos
     }
 
-    fn start_thread(self) -> thread::JoinGuard<'t, ()> {
-        let builder = thread::Builder::new().name(format!("fork-join supervisor"));
-        let joinguard = builder.scoped(move|| {
-            self.main_loop();
-        });
-        match joinguard {
-            Ok(j) => j,
-            Err(e) => panic!("PoolSupervisor: Unable to start supervisor thread: {}", e),
+    fn start_thread(self) -> thread_scoped::JoinGuard<'t, ()> {
+        unsafe {
+            thread_scoped::scoped(move|| {
+                self.main_loop();
+            })
         }
     }
 
