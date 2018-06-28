@@ -15,7 +15,7 @@ keywords = ["fork-join", "forkjoin", "work", "stealing", "parallelization"]
 [dependencies]
 deque = "0.3"
 rand = "0.3.*"
-num_cpus = "0.2.*"
+num_cpus = "1.8"
 thread-scoped = "1.*"
 libc = "*"
 
