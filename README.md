@@ -2,6 +2,7 @@
 A work stealing fork-join parallelism library.
 
 [![Build Status](https://api.travis-ci.org/faern/forkjoin.svg?branch=master)](https://travis-ci.org/faern/forkjoin)
+[![deprecated](http://badges.github.io/stability-badges/dist/deprecated.svg)](http://github.com/badges/stability-badges)
 
 Inspired by the blog post [Data Parallelism in Rust](http://smallcultfollowing.com/babysteps/blog/2013/06/11/data-parallelism-in-rust/)
 and implemented as part of the master's thesis [Parallelization in Rust with fork-join and friends](http://publications.lib.chalmers.se/records/fulltext/219016/219016.pdf). Repository hosted at [github.com/faern/forkjoin](https://github.com/faern/forkjoin)
